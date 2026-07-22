@@ -3,6 +3,7 @@ import pandas as pd
 import sqlite3
 import plotly.express as px
 from analytics import compute_net_taker_flow, compute_user_sentiment_index
+from pipeline import generate_simulated_trades
 
 st.set_page_config(page_title="Bitnorm CryptoPulse Dashboard", layout="wide")
 
@@ -10,10 +11,21 @@ st.set_page_config(page_title="Bitnorm CryptoPulse Dashboard", layout="wide")
 st.title("🚀 Bitnorm CryptoPulse: Market Intelligence & Customer Trading Analytics")
 st.markdown("An end-to-end platform bridging live crypto market telemetry, machine learning trend forecasting, and customer trading behavior.")
 
-# Load database connections and analytics data
+# Load database connections and analytics data with auto-initialization for cloud deployment
 @st.cache_data
 def load_data():
     conn = sqlite3.connect("crypto_data.db")
+    cursor = conn.cursor()
+    
+    # Check if customer_trades table exists; if not, generate it automatically
+    cursor.execute("SELECT name FROM sqlite_master WHERE type='table' AND name='customer_trades'")
+    table_exists = cursor.fetchone()
+    
+    if not table_exists:
+        conn.close()
+        generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
+        conn = sqlite3.connect("crypto_data.db")
+        
     df_trades = pd.read_sql("SELECT * FROM customer_trades", conn)
     conn.close()
     df_trades['timestamp'] = pd.to_datetime(df_trades['timestamp'])
@@ -84,7 +96,6 @@ col_c, col_d = st.columns(2)
 
 with col_c:
     st.subheader("Cumulative Trade Volume Over Time")
-    # Resample daily volume
     daily_volume = filtered_trades.set_index('timestamp').resample('D')['trade_amount_usd'].sum().reset_index()
     fig_time = px.line(
         daily_volume, 
