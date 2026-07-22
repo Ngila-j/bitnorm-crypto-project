@@ -20,7 +20,7 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# Custom High-End Styling (BitNorm Dark Theme & Clean Navigation List)
+# Custom High-End Styling (BitNorm Dark Theme & Clean Navigation)
 st.markdown("""
     <style>
     .main {
@@ -50,33 +50,23 @@ st.markdown("""
         text-align: center;
         margin-bottom: 20px;
     }
-    /* Completely hide Streamlit radio selection circles and style as clean tabs */
-    div.row-widget.stRadio > div {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-    }
-    div.row-widget.stRadio input {
-        display: none !important;
-    }
-    div.row-widget.stRadio label {
+    
+    /* Clean Sidebar Button Styling for Navigation */
+    div.stButton > button {
+        width: 100%;
         background-color: transparent;
-        padding: 10px 14px;
-        border-radius: 8px;
-        cursor: pointer;
-        border: 1px solid transparent;
         color: #9ca3af;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        text-align: left;
+        padding: 8px 12px;
         font-weight: 500;
         transition: all 0.2s ease-in-out;
     }
-    div.row-widget.stRadio label:hover {
+    div.stButton > button:hover {
         background-color: #1f2937;
         color: #ffffff;
         border-color: #374151;
-    }
-    /* Hide the hidden wrapper columns generated around radio options */
-    .stRadio div[role="radiogroup"] > label > div:first-child {
-        display: none !important;
     }
     </style>
 """, unsafe_allow_html=True)
@@ -177,25 +167,31 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR NAVIGATION ---
-st.sidebar.image("https://img.icons8.com/fluency/96/source-code.png", width=50)
+# --- SIDEBAR NAVIGATION (Button-based state routing) ---
+if "nav_section" not in st.session_state:
+    st.session_state.nav_section = "Home / Command Center"
+
+st.sidebar.image("logo.png", width=50)
 st.sidebar.title("BITNORM")
 st.sidebar.caption("BNAnalytics Intelligence Module")
+st.sidebar.markdown("---")
 
-section = st.sidebar.radio(
-    "Navigation Command",
-    [
-        "Home / Command Center",
-        "Code Intelligence",
-        "Ledger Metrics",
-        "Market Economics",
-        "Social Sentiment",
-        "Ecosystem Liquidity",
-    ],
-    index=0,
-    label_visibility="collapsed"
-)
+nav_options = [
+    "Home ",
+    "Code Intelligence",
+    "Ledger Metrics",
+    "Market Economics",
+    "Social Sentiment",
+    "Ecosystem Liquidity"
+]
 
+for option in nav_options:
+    if st.sidebar.button(option, key=f"nav_{option}"):
+        st.session_state.nav_section = option
+
+section = st.session_state.nav_section
+
+st.sidebar.markdown("---")
 asset_symbol = st.sidebar.selectbox("Target Asset", ["BTC", "ETH", "SOL", "ADA"], index=0)
 
 st.sidebar.markdown("---")
