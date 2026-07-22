@@ -1,97 +1,79 @@
 import sqlite3
-import time
-from datetime import datetime
+import random
+from datetime import datetime, timedelta
 import pandas as pd
-import requests
 
-# SQLite database setup (creates a local file automatically)
-DB_NAME = "crypto_data.db"
-
-
-def init_db():
-  """Initializes the SQLite database and creates the target table."""
-  conn = sqlite3.connect(DB_NAME)
-  cursor = conn.cursor()
-  cursor.execute("""
-        CREATE TABLE IF NOT EXISTS market_data (
-            id TEXT,
-            symbol TEXT,
-            name TEXT,
-            current_price REAL,
-            market_cap REAL,
-            total_volume REAL,
-            price_change_percentage_24h REAL,
-            timestamp TEXT
+def init_customer_trades_table(db_path="crypto_data.db"):
+    """Creates the customer_trades table if it doesn't already exist."""
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS customer_trades (
+            trade_id TEXT PRIMARY KEY,
+            timestamp TEXT,
+            user_id TEXT,
+            asset_symbol TEXT,
+            order_type TEXT,
+            trade_amount_usd REAL,
+            execution_price REAL
         )
     """)
-  conn.commit()
-  conn.close()
-  print("Database initialized successfully.")
+    
+    conn.commit()
+    conn.close()
 
+def generate_simulated_trades(num_records=5000, db_path="crypto_data.db"):
+    """Generates 5,000+ simulated customer trade logs and saves them to SQLite."""
+    init_customer_trades_table(db_path)
+    
+    conn = sqlite3.connect(db_path)
+    cursor = conn.cursor()
+    
+    # Check if trades already exist to avoid duplicate inflation
+    cursor.execute("SELECT COUNT(*) FROM customer_trades")
+    count = cursor.fetchone()[0]
+    if count >= num_records:
+        print(f"Table already contains {count} records. Skipping generation.")
+        conn.close()
+        return
 
-def fetch_crypto_data():
-  """Fetches top cryptocurrency market data from the free CoinGecko API."""
-  url = "https://api.coingecko.com/api/v3/coins/markets"
-  params = {
-      "vs_currency": "usd",
-      "order": "market_cap_desc",
-      "per_page": 20,  # Top 20 cryptocurrencies
-      "page": 1,
-      "sparkline": "false",
-  }
-
-  try:
-    response = requests.get(url, params=params)
-    if response.status_code == 200:
-      data = response.json()
-      return data
-    else:
-      print(f"Error fetching data: Status Code {response.status_code}")
-      return []
-  except Exception as e:
-    print(f"Network error: {e}")
-    return []
-
-
-def process_and_store(data):
-  """Cleans data using Pandas and loads it into SQLite."""
-  if not data:
-    print("No data to store.")
-    return
-
-  rows = []
-  current_time = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
-
-  for coin in data:
-    rows.append({
-        "id": coin.get("id"),
-        "symbol": coin.get("symbol"),
-        "name": coin.get("name"),
-        "current_price": coin.get("current_price"),
-        "market_cap": coin.get("market_cap"),
-        "total_volume": coin.get("total_volume"),
-        "price_change_percentage_24h": coin.get("price_change_percentage_24h"),
-        "timestamp": current_time,
-    })
-
-  df = pd.DataFrame(rows)
-
-  # Data Cleaning / Engineering check: drop any rows with missing prices
-  df = df.dropna(subset=["current_price"])
-
-  # Save to SQLite database
-  conn = sqlite3.connect(DB_NAME)
-  df.to_sql("market_data", conn, if_exists="append", index=False)
-  conn.close()
-
-  print(
-      f"Successfully ingested and stored records for {len(df)} coins at"
-      f" {current_time}"
-  )
-
+    assets = ["BTC", "ETH", "SOL", "BNB", "ADA"]
+    order_types = ["Buy", "Sell"]
+    base_prices = {"BTC": 65000.0, "ETH": 35000.0, "SOL": 180.0, "BNB": 580.0, "ADA": 0.45}
+    
+    start_time = datetime.now() - timedelta(days=30)
+    trades_data = []
+    
+    print(f"Generating {num_records} simulated customer trades...")
+    for i in range(1, num_records + 1):
+        trade_id = f"TRD-{i:05d}"
+        # Random timestamp within the last 30 days
+        delta_minutes = random.randint(0, 30 * 24 * 60)
+        timestamp = (start_time + timedelta(minutes=delta_minutes)).strftime("%Y-%m-%d %H:%M:%S")
+        
+        user_id = f"USR-{random.randint(100, 999)}"
+        asset = random.choice(assets)
+        order_type = random.choices(order_types, weights=[0.55, 0.45])[0] # slight buy bias
+        
+        # Fluctuate execution price slightly around base price
+        price_fluctuation = random.uniform(-0.03, 0.03)
+        execution_price = base_prices[asset] * (1 + price_fluctuation)
+        
+        # Trade amount between $50 and $15,000
+        trade_amount_usd = round(random.uniform(50.0, 15000.0), 2)
+        
+        trades_data.append((trade_id, timestamp, user_id, asset, order_type, trade_amount_usd, execution_price))
+        
+    cursor.executemany("""
+        INSERT OR REPLACE INTO customer_trades 
+        (trade_id, timestamp, user_id, asset_symbol, order_type, trade_amount_usd, execution_price)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
+    """, trades_data)
+    
+    conn.commit()
+    conn.close()
+    print("Successfully ingested 5,000+ customer trade records into crypto_data.db!")
 
 if __name__ == "__main__":
-  init_db()
-  print("Starting data ingestion job...")
-  raw_data = fetch_crypto_data()
-  process_and_store(raw_data)
+    generate_simulated_trades()
