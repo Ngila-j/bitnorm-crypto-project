@@ -1,104 +1,114 @@
-import sqlite3
-import pandas as pd
 import streamlit as st
+import pandas as pd
+import sqlite3
+import plotly.express as px
+from analytics import compute_net_taker_flow, compute_user_sentiment_index
 
-# Page configuration
-st.set_page_config(
-    page_title="CryptoPulse Intelligence Dashboard",
-    page_icon="📈",
-    layout="wide",
-)
+st.set_page_config(page_title="Bitnorm CryptoPulse Dashboard", layout="wide")
 
-DB_NAME = "crypto_data.db"
+# Title and Overview
+st.title("🚀 Bitnorm CryptoPulse: Market Intelligence & Customer Trading Analytics")
+st.markdown("An end-to-end platform bridging live crypto market telemetry, machine learning trend forecasting, and customer trading behavior.")
 
-
-@st.cache_data(ttl=60)
+# Load database connections and analytics data
+@st.cache_data
 def load_data():
-  """Loads market data from the SQLite database."""
-  try:
-    conn = sqlite3.connect(DB_NAME)
-    query = "SELECT * FROM market_data"
-    df = pd.read_sql(query, conn)
+    conn = sqlite3.connect("crypto_data.db")
+    df_trades = pd.read_sql("SELECT * FROM customer_trades", conn)
     conn.close()
-    return df
-  except Exception as e:
-    return pd.DataFrame()
+    df_trades['timestamp'] = pd.to_datetime(df_trades['timestamp'])
+    return df_trades
 
+df_trades = load_data()
+flow_df = compute_net_taker_flow()
+sentiment_df = compute_user_sentiment_index()
 
-# Dashboard Header
-st.title("🚀 Bitnorm CryptoPulse: Real-Time Intelligence Engine")
-st.markdown(
-    "Demonstrating end-to-end **Data Engineering, Machine Learning, and BI"
-    " Dashboarding** for crypto market analytics."
-)
+# Sidebar Filters
+st.sidebar.header("Filter Analytics")
+selected_asset = st.sidebar.selectbox("Select Asset Symbol", options=["ALL"] + list(flow_df['asset_symbol']))
 
-df = load_data()
+# Executive Metrics Row
+col1, col2, col3, col4 = st.columns(4)
+total_volume = df_trades['trade_amount_usd'].sum()
+total_trades = len(df_trades)
+unique_users = df_trades['user_id'].nunique()
+avg_trade = df_trades['trade_amount_usd'].mean()
 
-if df.empty:
-  st.warning(
-      "No data found in database yet. Please run your `pipeline.py` script"
-      " first!"
-  )
+col1.metric("Total Platform Trading Volume", f"${total_volume:,.2f}")
+col2.metric("Total Customer Trades", f"{total_trades:,}")
+col3.metric("Active Traders", f"{unique_users:,}")
+col4.metric("Average Trade Size", f"${avg_trade:,.2f}")
+
+st.markdown("---")
+
+# Section 1: Customer Trading Activity Visualizations
+st.header("📊 Customer Trading Activity & Platform Sentiment")
+
+# Filter data if specific asset is selected
+if selected_asset != "ALL":
+    filtered_trades = df_trades[df_trades['asset_symbol'] == selected_asset]
+    filtered_flow = flow_df[flow_df['asset_symbol'] == selected_asset]
 else:
-  # Sidebar filters
-  st.sidebar.header("Control Panel")
-  selected_coin = st.sidebar.selectbox(
-      "Select Cryptocurrency", df["name"].unique()
-  )
+    filtered_trades = df_trades
+    filtered_flow = flow_df
 
-  # Top-level metrics cards
-  latest_timestamp = df["timestamp"].max()
-  st.caption(f"Last Pipeline Sync: {latest_timestamp} (UTC)")
+col_a, col_b = st.columns(2)
 
-  col1, col2, col3 = st.columns(3)
-
-  coin_df = df[df["name"] == selected_coin]
-  latest_record = coin_df.iloc[-1]
-
-  with col1:
-    st.metric(
-        label=f"{selected_coin} Price (USD)",
-        value=f"${latest_record['current_price']:,.2f}",
+with col_a:
+    st.subheader("Trading Volume by Asset (Buy vs Sell)")
+    fig_volume = px.bar(
+        flow_df, 
+        x='asset_symbol', 
+        y=['Buy', 'Sell'], 
+        barmode='group',
+        labels={'value': 'Volume (USD)', 'asset_symbol': 'Asset'},
+        title="Total Customer Buy/Sell Volume per Asset"
     )
-  with col2:
-    st.metric(
-        label="Market Capitalization",
-        value=f"${latest_record['market_cap']:,.0f}",
+    st.plotly_chart(fig_volume, use_container_width=True)
+
+with col_b:
+    st.subheader("Customer Sentiment Index")
+    fig_sentiment = px.bar(
+        sentiment_df, 
+        x='asset_symbol', 
+        y='Sentiment_Index',
+        color='Sentiment_Index',
+        color_continuous_scale='RdYlGn',
+        labels={'Sentiment_Index': 'Sentiment Index (-1 to +1)', 'asset_symbol': 'Asset'},
+        title="Net Buying Sentiment Index per Asset"
     )
-  with col3:
-    st.metric(
-        label="24h Price Change",
-        value=(
-            f"{latest_record['price_change_percentage_24h']:.2f}%"
-            if not pd.isna(latest_record["price_change_percentage_24h"])
-            else "N/A"
-        ),
+    st.plotly_chart(fig_sentiment, use_container_width=True)
+
+# Section 2: Time-Series Trend & Order Distribution
+col_c, col_d = st.columns(2)
+
+with col_c:
+    st.subheader("Cumulative Trade Volume Over Time")
+    # Resample daily volume
+    daily_volume = filtered_trades.set_index('timestamp').resample('D')['trade_amount_usd'].sum().reset_index()
+    fig_time = px.line(
+        daily_volume, 
+        x='timestamp', 
+        y='trade_amount_usd',
+        labels={'trade_amount_usd': 'Daily Volume (USD)', 'timestamp': 'Date'},
+        title="Platform Daily Trading Volume Trend"
     )
+    st.plotly_chart(fig_time, use_container_width=True)
 
-  st.divider()
-
-  # Visualizations
-  col_left, col_right = st.columns(2)
-
-  with col_left:
-    st.subheader(f"📊 {selected_coin} Price History Trend")
-    if len(coin_df) > 1:
-      st.line_chart(coin_df, x="timestamp", y="current_price")
-    else:
-      st.info(
-          "Run `pipeline.py` multiple times over a few minutes to generate"
-          " historical trend lines!"
-      )
-
-  with col_right:
-    st.subheader("🤖 AI / ML Model Risk & Feature Insights")
-    st.info(
-        "**XGBoost Model Feature Importance Analysis:**\n- **Total Volume:**"
-        " 65.6%\n- **Market Cap:** 20.0%\n- **Current Price:** 14.3%\n\n*Insight:"
-        " Volume fluctuations serve as the primary indicator for short-term"
-        " price direction predictions.*"
+with col_d:
+    st.subheader("Customer Trade Distribution by Asset")
+    asset_counts = filtered_trades['asset_symbol'].value_counts().reset_index()
+    asset_counts.columns = ['asset_symbol', 'count']
+    fig_pie = px.pie(
+        asset_counts, 
+        names='asset_symbol', 
+        values='count',
+        hole=0.4,
+        title="Proportion of Trades per Cryptocurrency"
     )
+    st.plotly_chart(fig_pie, use_container_width=True)
 
-  # Data table view
-  st.subheader("🔍 Raw Ingested Data Feed")
-  st.dataframe(df.tail(10), use_container_width=True)
+st.markdown("---")
+st.markdown("### 🔗 Project Resources & Deployment")
+st.markdown("- **GitHub Repository:** [Ngila-j/bitnorm-crypto-project](https://github.com/Ngila-j/bitnorm-crypto-project)")
+st.markdown("- **Live Dashboard:** Hosted live on Streamlit Cloud.")
