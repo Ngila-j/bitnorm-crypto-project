@@ -167,27 +167,27 @@ st.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
-# --- SIDEBAR NAVIGATION (Button-based state routing) ---
+# --- SIDEBAR NAVIGATION ---
 if "nav_section" not in st.session_state:
-    st.session_state.nav_section = "Home / Command Center"
+    st.session_state.nav_section = "Home"
 
 st.sidebar.image("logo.png", width=50)
 st.sidebar.title("BITNORM")
 st.sidebar.caption("BNAnalytics Intelligence Module")
 st.sidebar.markdown("---")
 
-nav_options = [
-    "Home ",
-    "Code Intelligence",
-    "Ledger Metrics",
-    "Market Economics",
-    "Social Sentiment",
-    "Ecosystem Liquidity"
-]
+nav_mapping = {
+    "Home": "Home",
+    "Code Intelligence": "Code Intelligence",
+    "Ledger Metrics": "Ledger Metrics",
+    "Market Economics": "Market Economics",
+    "Social Sentiment": "Social Sentiment",
+    "Ecosystem Liquidity": "Ecosystem Liquidity"
+}
 
-for option in nav_options:
-    if st.sidebar.button(option, key=f"nav_{option}"):
-        st.session_state.nav_section = option
+for label, target_section in nav_mapping.items():
+    if st.sidebar.button(label, key=f"nav_{label}"):
+        st.session_state.nav_section = target_section
 
 section = st.session_state.nav_section
 
@@ -198,7 +198,7 @@ st.sidebar.markdown("---")
 st.sidebar.info("💡 **BitNorm Tip:** Pivot seamlessly between macro overview and micro vector inspections.")
 
 # --- VIEW ROUTING ---
-if section == "Home / Command Center":
+if section == "Home":
     st.title("BNAnalytics Command Center")
     st.markdown("##### Real-time automated health tracking, multi-dimensional code verification, and on-chain sentiment analysis across global web3 markets.")
 
