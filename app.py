@@ -572,6 +572,8 @@ page_data = load_dashboard_data()
 # --- SIDEBAR NAVIGATION ---
 if "nav_section" not in st.session_state:
   st.session_state.nav_section = "Home"
+if "nav_category" not in st.session_state:
+  st.session_state.nav_category = "Home & Executive Summary"
 
 st.sidebar.image("logo.png", width=45)
 st.sidebar.title("BNANALYTICS")
@@ -580,39 +582,73 @@ st.sidebar.caption(
 )
 st.sidebar.markdown("---")
 
-nav_mapping = {
-    "Home": "Home",
-    "Code Intelligence": "Code Intelligence",
-    "Ledger Metrics": "Ledger Metrics",
-    "Market Economics": "Market Economics",
-    "Social Sentiment": "Social Sentiment",
-    "Ecosystem Liquidity": "Ecosystem Liquidity",
-    "Multi-Asset Comparison": "Multi-Asset Comparison",
-    "Portfolio Risk & VaR": "Portfolio Risk & VaR",
-    "Predictive ML Forecast": "Predictive ML Forecast",
-    "Prophet AI Forecaster": "Prophet AI Forecaster",
-    "Strategy Grid Optimizer": "Strategy Grid Optimizer",
-    "Automated Report Scheduler": "Automated Report Scheduler",
-    "Arbitrage Monitor": "Arbitrage Monitor",
-    "AI Executive Summary": "AI Executive Summary",
-    "Advanced Tech Indicators": "Advanced Tech Indicators",
-    "Strategy Backtester": "Strategy Backtester",
-    "Macro Correlation Matrix": "Macro Correlation Matrix",
-    "Whale Wallet & Flow Tracker": "Whale Wallet & Flow Tracker",
-    "Order Book Depth Chart": "Order Book Depth Chart",
-    "Liquidation Heatmap": "Liquidation Heatmap",
-    "Gas & Fee Oracle": "Gas & Fee Oracle",
-    "Alerts & Audit Log": "Alerts & Audit Log",
-    "Paper Trading & PnL": "Paper Trading & PnL",
-    "API Key Management": "API Key Management",
-    "SQL Query Sandbox": "SQL Query Sandbox",
+nav_categories = {
+    "Home & Executive Summary": [
+        "Home",
+        "AI Executive Summary",
+        "Automated Report Scheduler",
+    ],
+    "Market & Order Flow": [
+        "Market Economics",
+        "Order Book Depth Chart",
+        "Liquidation Heatmap",
+        "Ecosystem Liquidity",
+        "Whale Wallet & Flow Tracker",
+    ],
+    "Trading & Strategies": [
+        "Strategy Backtester",
+        "Strategy Grid Optimizer",
+        "Paper Trading & PnL",
+        "Arbitrage Monitor",
+        "Multi-Asset Comparison",
+    ],
+    "Analytics & Indicators": [
+        "Advanced Tech Indicators",
+        "Macro Correlation Matrix",
+        "Gas & Fee Oracle",
+        "Social Sentiment",
+        "Ledger Metrics",
+    ],
+    "AI & Forecasting": [
+        "Predictive ML Forecast",
+        "Prophet AI Forecaster",
+        "Code Intelligence",
+    ],
+    "System & Risk": [
+        "Portfolio Risk & VaR",
+        "Alerts & Audit Log",
+        "API Key Management",
+        "SQL Query Sandbox",
+    ],
 }
 
-for label, target_section in nav_mapping.items():
-  if st.sidebar.button(label, key=f"nav_{label}"):
-    st.session_state.nav_section = target_section
+selected_category = st.sidebar.selectbox(
+    "Category",
+    list(nav_categories.keys()),
+    index=list(nav_categories.keys()).index(st.session_state.nav_category),
+    key="nav_category_select",
+)
 
-section = st.session_state.nav_section
+if selected_category != st.session_state.nav_category:
+  st.session_state.nav_category = selected_category
+  if st.session_state.nav_section not in nav_categories[selected_category]:
+    st.session_state.nav_section = nav_categories[selected_category][0]
+
+available_pages = nav_categories[selected_category]
+page_index = (
+    available_pages.index(st.session_state.nav_section)
+    if st.session_state.nav_section in available_pages
+    else 0
+)
+
+st.sidebar.caption("Choose a focused workspace view below")
+section = st.sidebar.selectbox(
+    "View",
+    available_pages,
+    index=page_index,
+    key="nav_section_select",
+)
+st.session_state.nav_section = section
 
 st.sidebar.markdown("---")
 asset_symbol = st.sidebar.selectbox(
