@@ -675,7 +675,7 @@ if section == "Home":
     st.markdown(
         f'<div class="alert-box-warning">⚠️ WARNING: {asset_symbol} Health'
         f" Score ({score_val:.1f}) is below your warning threshold of"
-        " {alert_health_min}! Automated webhook dispatch primed.</div>",
+        f" {alert_health_min}! Automated webhook dispatch primed.</div>",
         unsafe_allow_html=True,
     )
   else:
@@ -1023,7 +1023,7 @@ elif section == "Ecosystem Liquidity":
         "wallet_support_score",
         f"{asset_symbol} Wallet Support Progress",
         "Support Score",
-        color="#ec4899",
+        color="#06b6d4",
     )
   with col_acc2:
     acc_frame = (
@@ -1033,647 +1033,11 @@ elif section == "Ecosystem Liquidity":
         .sort_values("metric_date")
     )
     if not acc_frame.empty:
-      fig_lines = px.line(
-          acc_frame,
-          x="metric_date",
-          y=["exchange_count", "wallet_support_score"],
-          title=f"{asset_symbol} Accessibility Multi-Metric Comparison",
-      )
-      fig_lines.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_lines, use_container_width=True)
-
-elif section == "Multi-Asset Comparison":
-  st.markdown("### Multi-Asset Comparative Performance Matrix")
-  selected_compare_assets = st.multiselect(
-      "Select Assets to Compare",
-      ["BTC", "ETH", "SOL", "ADA"],
-      default=["BTC", "ETH", "SOL"],
-  )
-  if selected_compare_assets and not page_data["economics"].empty:
-    pivot_comp = (
-        page_data["economics"]
-        .pivot(index="metric_date", columns="asset_symbol", values="market_cap")
-        .dropna()
-    )
-    valid_cols = [c for c in selected_compare_assets if c in pivot_comp.columns]
-    if valid_cols:
-      normalized_comp = (
-          pivot_comp[valid_cols] / pivot_comp[valid_cols].iloc[0]
-      ) * 100
-      fig_multi = px.line(
-          normalized_comp,
-          title=(
-              "Comparative Market Cap Growth (Normalized Base = 100)"
-          ),
-          labels={"value": "Growth Index", "metric_date": "Timeline"},
-      )
-      fig_multi.update_traces(line_width=3)
-      fig_multi.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_multi, use_container_width=True)
-
-elif section == "Portfolio Risk & VaR":
-  st.markdown("### Interactive Portfolio Risk & VaR Simulator")
-  col_w1, col_w2, col_w3, col_w4 = st.columns(4)
-  with col_w1:
-    w_btc = st.slider("BTC Weight (%)", 0, 100, 40)
-  with col_w2:
-    w_eth = st.slider("ETH Weight (%)", 0, 100, 30)
-  with col_w3:
-    w_sol = st.slider("SOL Weight (%)", 0, 100, 20)
-  with col_w4:
-    w_ada = st.slider("ADA Weight (%)", 0, 100, 10)
-
-  econ_df = page_data["economics"]
-  if not econ_df.empty:
-    pivot_market = (
-        econ_df.pivot(index="metric_date", columns="asset_symbol", values="market_cap")
-        .dropna()
-    )
-    returns_df = pivot_market.pct_change().dropna()
-    available_assets = [
-        a for a in ["BTC", "ETH", "SOL", "ADA"] if a in returns_df.columns
-    ]
-    if available_assets:
-      weights = np.array(
-          [w_btc, w_eth, w_sol, w_ada][: len(available_assets)], dtype=float
-      )
-      if weights.sum() > 0:
-        weights = weights / weights.sum()
-        port_returns = returns_df[available_assets].dot(weights)
-        port_vol = port_returns.std() * np.sqrt(365)
-        port_var_95 = np.percentile(port_returns, 5) * 100
-
-        col_r1, col_r2, col_r3 = st.columns(3)
-        with col_r1:
-          st.metric("Portfolio Annualized Volatility", f"{port_vol*100:.2f}%")
-        with col_r2:
-          st.metric("Estimated Daily 95% VaR", f"{port_var_95:.2f}%")
-        with col_r3:
-          st.metric(
-              "Risk Profile Category",
-              "Moderate / Growth" if port_vol < 0.8 else "High Risk",
-          )
-
-        fig_port = px.line(
-            port_returns.cumsum() * 100,
-            title="Simulated Cumulative Portfolio Returns (%)",
-        )
-        fig_port.update_traces(line_color="#3b82f6", line_width=3)
-        fig_port.update_layout(
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#f3f4f6",
-        )
-        st.plotly_chart(fig_port, use_container_width=True)
-
-elif section == "Predictive ML Forecast":
-  st.markdown("### Predictive Machine Learning Valuation Model")
-  asset_econ = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ].sort_values("metric_date")
-  if len(asset_econ) > 5:
-    last_date = asset_econ["metric_date"].iloc[-1].date()
-    target_forecast_date = st.date_input(
-        "Target Forecast Date", value=last_date + pd.Timedelta(days=14)
-    )
-    days_ahead = (target_forecast_date - last_date).days
-
-    X = np.arange(len(asset_econ)).reshape(-1, 1)
-    y = asset_econ["market_cap"].values
-    slope, intercept = np.polyfit(X.flatten(), y, 1)
-
-    future_indices = np.arange(len(asset_econ), len(asset_econ) + days_ahead)
-    future_y = slope * future_indices + intercept
-    future_dates = pd.date_range(
-        start=asset_econ["metric_date"].iloc[-1] + pd.Timedelta(days=1),
-        periods=days_ahead,
-    )
-
-    forecast_df = pd.DataFrame({
-        "metric_date": future_dates,
-        "forecast_market_cap": future_y,
-        "type": "Forecast",
-    })
-    historical_df = asset_econ[["metric_date", "market_cap"]].rename(
-        columns={"market_cap": "forecast_market_cap"}
-    )
-    historical_df["type"] = "Historical"
-    combined_forecast = pd.concat([historical_df, forecast_df])
-
-    st.metric(
-        f"Projected Valuation for {target_forecast_date}",
-        format_currency(future_y[-1] if len(future_y) > 0 else y[-1]),
-    )
-    fig_ml = px.line(
-        combined_forecast,
-        x="metric_date",
-        y="forecast_market_cap",
-        color="type",
-        title=f"{asset_symbol} Custom ML Valuation Forecast",
-    )
-    fig_ml.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_ml, use_container_width=True)
-
-# --- NEW MODULE INTEGRATION: Prophet AI Forecaster ---
-elif section == "Prophet AI Forecaster":
-  st.markdown(
-      f"### 📈 Prophet AI Time-Series Forecaster: {asset_symbol}"
-  )
-  st.markdown(
-      "Advanced Bayesian seasonal trend forecasting for institutional asset"
-      " valuations."
-  )
-
-  forecast_horizon = st.slider(
-      "Forecast Horizon (Days)", min_value=7, max_value=90, value=30
-  )
-  asset_econ = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ].sort_values("metric_date")
-
-  if not asset_econ.empty and len(asset_econ) > 5:
-    if st.button("Run Prophet Model Training"):
-      with st.spinner("Training Bayesian neural decomposition model..."):
-        model, forecast_df = (
-            InstitutionalAnalyticsEngine.generate_prophet_forecast(
-                asset_econ, periods=forecast_horizon
-            )
-        )
-
-        st.subheader("Forecast Trajectory Output (Upper & Lower Bands)")
-        fig_prophet = go.Figure()
-        fig_prophet.add_trace(
-            go.Scatter(
-                x=forecast_df["ds"],
-                y=forecast_df["yhat"],
-                name="Predicted Market Cap",
-                line=dict(color="#10b981", width=2.5),
-            )
-        )
-        fig_prophet.add_trace(
-            go.Scatter(
-                x=forecast_df["ds"],
-                y=forecast_df["yhat_upper"],
-                fill=None,
-                mode="lines",
-                marker=dict(color="rgba(16,185,129,0.2)"),
-                line=dict(width=0),
-                showlegend=False,
-            )
-        )
-        fig_prophet.add_trace(
-            go.Scatter(
-                x=forecast_df["ds"],
-                y=forecast_df["yhat_lower"],
-                fill="tonexty",
-                mode="lines",
-                marker=dict(color="rgba(16,185,129,0.2)"),
-                line=dict(width=0),
-                name="Confidence Interval",
-            )
-        )
-        fig_prophet.update_layout(
-            title=f"{asset_symbol} Prophet Valuation Trajectory",
-            plot_bgcolor="rgba(0,0,0,0)",
-            paper_bgcolor="rgba(0,0,0,0)",
-            font_color="#f3f4f6",
-        )
-        st.plotly_chart(fig_prophet, use_container_width=True)
-
-        st.subheader("Model Seasonality Components Breakdown")
-        fig_comp = model.plot_components(forecast_df)
-        st.pyplot(fig_comp)
-  else:
-    st.warning("Insufficient historical records to run Prophet forecasting.")
-
-# --- NEW MODULE INTEGRATION: Strategy Grid Optimizer ---
-elif section == "Strategy Grid Optimizer":
-  st.markdown("### ⚙️ Automated Strategy Grid Optimizer")
-  st.markdown(
-      "Exhaustively scan parameter permutations for Moving Average crossover"
-      " strategies to maximize institutional Sharpe Ratios."
-  )
-
-  col_og1, col_og2 = st.columns(2)
-  with col_og1:
-    short_window_input = st.text_input(
-        "Short MA Options (Comma separated)", "5, 10, 15, 20"
-    )
-  with col_og2:
-    long_window_input = st.text_input(
-        "Long MA Options (Comma separated)", "30, 50, 100, 150"
-    )
-
-  asset_econ = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ].sort_values("metric_date")
-  if not asset_econ.empty and len(asset_econ) > 10:
-    if st.button("Execute Grid Search Optimizer"):
-      try:
-        s_list = [int(x.strip()) for x in short_window_input.split(",")]
-        l_list = [int(x.strip()) for x in long_window_input.split(",")]
-        prices = asset_econ["market_cap"].reset_index(drop=True)
-
-        with st.spinner("Scanning parameter space..."):
-          res_df, best_p = InstitutionalAnalyticsEngine.optimize_strategy_grid(
-              prices, s_list, l_list
-          )
-          st.success(
-              f"Optimization Complete! Optimal Configuration Found -> Short MA:"
-              f" {best_p[0]} | Long MA: {best_p[1]}"
-          )
-          st.dataframe(
-              res_df.sort_values(by="Sharpe Ratio", ascending=False),
-              use_container_width=True,
-          )
-      except Exception as e:
-        st.error(f"Execution Error: {e}")
-  else:
-    st.warning("Insufficient historical metrics for grid optimization.")
-
-# --- NEW MODULE INTEGRATION: Automated Report Scheduler ---
-elif section == "Automated Report Scheduler":
-  st.markdown("### 🕒 Automated Executive Report & Webhook Dispatcher")
-  st.markdown(
-      "Configure automated background report generation, scheduling, and"
-      " distribution."
-  )
-
-  sched_time = st.time_input(
-      "Daily Scheduled Execution Time", value=time(8, 0)
-  )
-  target_email = st.text_input(
-      "Institutional Recipient Email", "risk-desk@fbridge.africa"
-  )
-  cron_enabled = st.checkbox("Arm Background Cron Daemon")
-
-  if cron_enabled:
-    st.success(
-        f"Background scheduler successfully armed for daily dispatch at"
-        f" {sched_time.strftime('%H:%M')} to {target_email}."
-    )
-    st.info(
-        "💡 **Enterprise Note:** Ensure the background daemon process is"
-        " running on your server environment to execute scheduled cron tasks."
-    )
-  else:
-    st.warning("Scheduler is currently disarmed.")
-
-elif section == "Arbitrage Monitor":
-  st.markdown("### Multi-Exchange Arbitrage Monitor")
-  st.markdown(
-      "Real-time simulated price spread monitoring across top tier liquidity"
-      " venues."
-  )
-
-  base_price = (
-      65000.0
-      if asset_symbol == "BTC"
-      else (2000.0 if asset_symbol == "ETH" else 140.0)
-  )
-  np.random.seed(42)
-
-  arb_data = pd.DataFrame({
-      "Exchange": ["Binance", "Coinbase Pro", "Kraken", "OKX", "Bybit"],
-      "Bid Price ($)": [
-          base_price + np.random.uniform(-15, 15) for _ in range(5)
-      ],
-      "Ask Price ($)": [base_price + np.random.uniform(5, 35) for _ in range(5)],
-      "24h Volume ($M)": [np.random.uniform(800, 3400) for _ in range(5)],
-  })
-
-  arb_data["Spread (%)"] = (
-      (arb_data["Ask Price ($)"] - arb_data["Bid Price ($)"])
-      / arb_data["Bid Price ($)"]
-  ) * 100
-  st.dataframe(
-      arb_data.style.format({
-          "Bid Price ($)": "${:,.2f}",
-          "Ask Price ($)": "${:,.2f}",
-          "24h Volume ($M)": "${:,.1f}M",
-          "Spread (%)": "{:.3f}%",
-      }),
-      use_container_width=True,
-  )
-
-  max_bid = arb_data.loc[arb_data["Bid Price ($)"].idxmax()]
-  min_ask = arb_data.loc[arb_data["Ask Price ($)"].idxmin()]
-  spread_diff = max_bid["Bid Price ($)"] - min_ask["Ask Price ($)"]
-
-  col_a1, col_a2 = st.columns(2)
-  with col_a1:
-    st.metric(
-        "Optimal Cross-Exchange Spread",
-        f"${spread_diff:,.2f}",
-        "Arbitrage Opportunity" if spread_diff > 0 else "Tight Spread",
-    )
-  with col_a2:
-    st.info(
-        f"💡 **Route Execution:** Buy on {min_ask['Exchange']} @"
-        f" ${min_ask['Ask Price ($)']:,.2f} and sell on {max_bid['Exchange']} @"
-        f" ${max_bid['Bid Price ($)']:,.2f}."
-    )
-
-elif section == "AI Executive Summary":
-  st.markdown("### Automated AI Market Summary Generator")
-  st.markdown(
-      "Instant analytical synthesis of current multi-vector metrics powered by"
-      " automated heuristic text formatting."
-  )
-
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  econ = snapshot["economics"] or {}
-  net = snapshot["network"] or {}
-  sent = snapshot["sentiment"] or {}
-
-  if st.button("Generate Fresh Executive Brief"):
-    with st.spinner("Synthesizing multi-vector analytics vectors..."):
-      summary_text = f"""
-            ### 📊 BNAnalytics Executive Intelligence Brief: {asset_symbol}
-            **Generated for Bitnorm Production Suite**
-            
-            * **Overall Health Standing:** {asset_symbol} scored an aggregate composite health rating of **{health_score['health_score']:.1f} / 100**. This places the asset in a {'strong institutional tier' if health_score['health_score'] >= 50 else 're-accumulation zone'}.
-            * **Market Economics & Valuation:** Current market capitalization is logged at **{format_currency(econ.get('market_cap', 0))}**, accompanied by a **24-hour trading liquidity turnover of {format_currency(econ.get('volume_24h', 0))}**.
-            * **Ledger Throughput & Activity:** On-chain telemetry demonstrates active network utilization running at **{net.get('tx_tps', 0):.2f} TPS** with **{net.get('active_addresses', 0):,} active daily wallet addresses** interacting with core contracts.
-            * **Market Sentiment Profile:** Social mood indexes register a sentiment score of **{sent.get('user_sentiment_index', 0):.3f}**, reflecting consistent holder conviction across active orderbooks.
-            
-            *Conclusion:* BNAnalytics telemetry indicates stable structural health for {asset_symbol}, supporting continued deployment across enterprise liquidity portfolios.
-            """
-      st.markdown(summary_text)
-  else:
-    st.info(
-        "Click the button above to generate a real-time synthesized briefing"
-        " for "
-        + asset_symbol
-    )
-
-elif section == "Advanced Tech Indicators":
-  st.markdown(
-      "### Advanced Technical Indicators Engine (RSI, MACD, Bollinger Bands)"
-  )
-  st.markdown(
-      "Automated quantitative calculations and visual plotting for momentum and"
-      " volatility tracking."
-  )
-
-  asset_econ = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ].sort_values("metric_date").copy()
-  if len(asset_econ) > 14:
-    delta = asset_econ["market_cap"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    rs = gain / loss
-    asset_econ["RSI"] = 100 - (100 / (1 + rs))
-
-    asset_econ["MA20"] = asset_econ["market_cap"].rolling(window=20).mean()
-    asset_econ["STD20"] = asset_econ["market_cap"].rolling(window=20).std()
-    asset_econ["UpperBand"] = asset_econ["MA20"] + (asset_econ["STD20"] * 2)
-    asset_econ["LowerBand"] = asset_econ["MA20"] - (asset_econ["STD20"] * 2)
-
-    tab_rsi, tab_bb = st.tabs(
-        ["Relative Strength Index (RSI)", "Bollinger Bands"]
-    )
-
-    with tab_rsi:
-      fig_rsi = px.line(
-          asset_econ,
-          x="metric_date",
-          y="RSI",
-          title=f"{asset_symbol} 14-Day RSI Momentum Oscillator",
-      )
-      fig_rsi.add_hline(
-          y=70, line_dash="dash", line_color="red", annotation_text="Overbought (70)"
-      )
-      fig_rsi.add_hline(
-          y=30, line_dash="dash", line_color="green", annotation_text="Oversold (30)"
-      )
-      fig_rsi.update_traces(line_color="#f59e0b", line_width=2.5)
-      fig_rsi.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_rsi, use_container_width=True)
-
-    with tab_bb:
-      fig_bb = go.Figure()
-      fig_bb.add_trace(
-          go.Scatter(
-              x=asset_econ["metric_date"],
-              y=asset_econ["market_cap"],
-              name="Market Cap",
-              line=dict(color="#3b82f6", width=2),
-          )
-      )
-      fig_bb.add_trace(
-          go.Scatter(
-              x=asset_econ["metric_date"],
-              y=asset_econ["UpperBand"],
-              name="Upper Band",
-              line=dict(color="gray", dash="dot"),
-          )
-      )
-      fig_bb.add_trace(
-          go.Scatter(
-              x=asset_econ["metric_date"],
-              y=asset_econ["LowerBand"],
-              name="Lower Band",
-              line=dict(color="gray", dash="dot"),
-              fill="tonexty",
-              fillcolor="rgba(59, 130, 246, 0.05)",
-          )
-      )
-      fig_bb.update_layout(
-          title=f"{asset_symbol} Bollinger Bands Volatility Envelope",
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_bb, use_container_width=True)
-  else:
-    st.warning("Insufficient historical data points to calculate indicators.")
-
-elif section == "Strategy Backtester":
-  st.markdown("### Quantitative Strategy Backtesting Engine")
-  st.markdown(
-      "Backtest rules-based momentum strategies against historical database"
-      " valuation metrics."
-  )
-
-  col_b1, col_b2 = st.columns(2)
-  with col_b1:
-    rsi_buy_threshold = st.slider("Buy RSI Threshold (<)", 10, 45, 30)
-  with col_b2:
-    rsi_sell_threshold = st.slider("Sell RSI Threshold (>)", 55, 90, 70)
-
-  asset_econ = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ].sort_values("metric_date").copy()
-  if len(asset_econ) > 15:
-    delta = asset_econ["market_cap"].diff()
-    gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
-    loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-    asset_econ["RSI"] = 100 - (100 / (1 + (gain / loss)))
-    asset_econ["Signal"] = 0
-    asset_econ.loc[asset_econ["RSI"] < rsi_buy_threshold, "Signal"] = 1
-    asset_econ.loc[asset_econ["RSI"] > rsi_sell_threshold, "Signal"] = -1
-
-    asset_econ["Strategy_Returns"] = (
-        asset_econ["market_cap"].pct_change().shift(-1)
-        * asset_econ["Signal"].shift(1)
-    )
-    cumulative_strategy = (
-        1 + asset_econ["Strategy_Returns"].fillna(0)
-    ).cumprod() - 1
-
-    col_m1, col_m2, col_m3 = st.columns(3)
-    with col_m1:
-      st.metric(
-          "Backtest Total Strategy Return",
-          f"{cumulative_strategy.iloc[-1]*100:.2f}%",
-      )
-    with col_m2:
-      st.metric(
-          "Total Signals Generated", f"{(asset_econ['Signal'] != 0).sum()} triggers"
-      )
-    with col_m3:
-      st.metric("Backtest Status", "Optimized", "Passed")
-
-    fig_backtest = px.line(
-        asset_econ,
-        x="metric_date",
-        y=cumulative_strategy * 100,
-        title=f"{asset_symbol} RSI Strategy Cumulative Performance (%)",
-    )
-    fig_backtest.update_traces(line_color="#10b981", line_width=3)
-    fig_backtest.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_backtest, use_container_width=True)
-  else:
-    st.warning("Not enough historical data points to execute backtesting rules.")
-
-elif section == "Macro Correlation Matrix":
-  st.markdown("### Macroeconomic & Benchmark Correlation Matrix")
-  st.markdown(
-      "Analyze rolling correlations between crypto assets and traditional"
-      " economic instruments."
-  )
-
-  econ_df = page_data["economics"]
-  if not econ_df.empty:
-    pivot_macro = (
-        econ_df.pivot(index="metric_date", columns="asset_symbol", values="market_cap")
-        .dropna()
-    )
-
-    np.random.seed(100)
-    dates = pivot_macro.index
-    macro_sim = pd.DataFrame(
-        {
-            "DXY (USD Index)": 104
-            + np.cumsum(np.random.normal(0, 0.2, len(dates))),
-            "US 10Y Yield": 4.2
-            + np.cumsum(np.random.normal(0, 0.05, len(dates))),
-            "Gold Spot": 2300
-            + np.cumsum(np.random.normal(0, 8, len(dates))),
-        },
-        index=dates,
-    )
-
-    combined_macro_matrix = pd.concat([pivot_macro, macro_sim], axis=1).pct_change().dropna()
-    corr_matrix = combined_macro_matrix.corr()
-
-    fig_corr = px.imshow(
-        corr_matrix,
-        text_auto=True,
-        aspect="auto",
-        color_continuous_scale="RdBu_r",
-        title="Cross-Asset & Macro Correlation Heatmap",
-    )
-    fig_corr.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_corr, use_container_width=True)
-
-elif section == "Whale Wallet & Flow Tracker":
-  st.markdown("### Smart-Money Whale Wallet & On-Chain Flow Tracker")
-  st.markdown(
-      "Real-time monitoring of large-ticket wallet transfers, exchange"
-      " inflows/outflows, and capital accumulation trends."
-  )
-
-  whale_df = page_data["whale_df"]
-  asset_whales = whale_df[whale_df["asset_symbol"] == asset_symbol]
-
-  if not asset_whales.empty:
-    total_whale_vol = asset_whales["usd_value"].sum()
-    inflows = asset_whales[asset_whales["tx_type"] == "Exchange Inflow"][
-        "usd_value"
-    ].sum()
-    outflows = asset_whales[asset_whales["tx_type"] == "Exchange Outflow"][
-        "usd_value"
-    ].sum()
-    net_flow = outflows - inflows
-
-    col_w1, col_w2, col_w3 = st.columns(3)
-    with col_w1:
-      st.metric("Total Whale Volume Tracked", format_currency(total_whale_vol))
-    with col_w2:
-      st.metric(
-          "Exchange Net Accumulation",
-          format_currency(net_flow),
-          "Bullish Flow" if net_flow > 0 else "Distribution Pressure",
-      )
-    with col_w3:
-      st.metric("Whale Transaction Count", f"{len(asset_whales):,} transfers")
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    col_chart1, col_chart2 = st.columns(2)
-
-    with col_chart1:
-      fig_pie = px.pie(
-          asset_whales,
-          names="tx_type",
-          values="usd_value",
-          title=(
-              f"{asset_symbol} Whale Volume Distribution by Transfer Vector"
-          ),
-      )
-      fig_pie.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_pie, use_container_width=True)
-
-    with col_chart2:
       fig_hist = px.histogram(
-          asset_whales,
-          x="usd_value",
-          nbins=20,
-          title=f"{asset_symbol} Whale Transaction Size Histogram ($)",
-          color_discrete_sequence=["#3b82f6"],
+          acc_frame,
+          x="exchange_count",
+          title=f"{asset_symbol} Exchange Availability Frequency",
+          color_discrete_sequence=["#06b6d4"],
       )
       fig_hist.update_layout(
           plot_bgcolor="rgba(0,0,0,0)",
@@ -1682,302 +1046,680 @@ elif section == "Whale Wallet & Flow Tracker":
       )
       st.plotly_chart(fig_hist, use_container_width=True)
 
-    st.markdown("#### Latest Recorded Whale Transactions")
-    st.dataframe(
-        asset_whales[[
-            "timestamp",
-            "tx_type",
-            "amount_tokens",
-            "usd_value",
-            "sender_wallet",
-            "receiver_wallet",
-        ]]
-        .sort_values("timestamp", ascending=False)
-        .head(10)
-        .style.format(
-            {"amount_tokens": "{:,.2f}", "usd_value": "${:,.2f}"}
-        ),
-        use_container_width=True,
+elif section == "Multi-Asset Comparison":
+  st.subheader("Cross-Asset Comparative Analysis")
+  st.markdown("Compare key metrics across all tracked digital assets.")
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  comp_df = (
+      page_data["economics"]
+      .sort_values("metric_date")
+      .groupby("asset_symbol")
+      .tail(1)
+  )
+  fig_comp = px.bar(
+      comp_df,
+      x="asset_symbol",
+      y=["market_cap", "volume_24h"],
+      barmode="group",
+      title="Market Capitalization vs 24h Volume Across Assets",
+      labels={"value": "USD ($)", "asset_symbol": "Asset"},
+  )
+  fig_comp.update_layout(
+      plot_bgcolor="rgba(0,0,0,0)",
+      paper_bgcolor="rgba(0,0,0,0)",
+      font_color="#f3f4f6",
+  )
+  st.plotly_chart(fig_comp, use_container_width=True)
+
+elif section == "Portfolio Risk & VaR":
+  st.subheader("Institutional Portfolio Risk & Value at Risk (VaR)")
+  st.markdown(
+      "Analyze historical parametric and historical Value at Risk (VaR) for your"
+      " portfolio positions."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  prices_pivot = page_data["economics"].pivot(
+      index="metric_date", columns="asset_symbol", values="market_cap"
+  )
+  returns = prices_pivot.pct_change().dropna()
+  if not returns.empty:
+    portfolio_returns = returns.mean(axis=1)
+    var_95 = np.percentile(portfolio_returns, 5)
+    var_99 = np.percentile(portfolio_returns, 1)
+
+    r_col1, r_col2, r_col3 = st.columns(3)
+    with r_col1:
+      st.metric("Daily VaR (95% Confidence)", f"{var_95*100:.2f}%")
+    with r_col2:
+      st.metric("Daily VaR (99% Confidence)", f"{var_99*100:.2f}%")
+    with r_col3:
+      st.metric(
+          "Portfolio Volatility (Ann.)",
+          f"{portfolio_returns.std() * np.sqrt(252) * 100:.2f}%",
+      )
+
+    st.markdown("---")
+    fig_var = px.histogram(
+        portfolio_returns * 100,
+        nbins=30,
+        title="Portfolio Daily Returns Distribution (%)",
+        labels={"value": "Daily Return (%)"},
     )
+    fig_var.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#f3f4f6",
+    )
+    st.plotly_chart(fig_var, use_container_width=True)
   else:
-    st.warning("No whale transaction data available for the selected asset.")
+    st.warning("Insufficient return data for portfolio VaR calculation.")
+
+elif section == "Predictive ML Forecast":
+  st.subheader(f"Predictive ML Trend Forecasting: {asset_symbol}")
+  st.markdown(
+      "Linear regression and rolling statistical trend projections for valuation"
+      " modeling."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  df_asset = (
+      page_data["economics"][
+          page_data["economics"]["asset_symbol"] == asset_symbol
+      ]
+      .sort_values("metric_date")
+      .copy()
+  )
+  if len(df_asset) > 5:
+    df_asset["days"] = (
+        df_asset["metric_date"] - df_asset["metric_date"].min()
+    ).dt.days
+    x = df_asset["days"].values
+    y = df_asset["market_cap"].values
+    slope, intercept = np.polyfit(x, y, 1)
+    df_asset["forecast"] = intercept + slope * x
+
+    fig_ml = go.Figure()
+    fig_ml.add_trace(
+        go.Scatter(
+            x=df_asset["metric_date"],
+            y=df_asset["market_cap"],
+            mode="lines+markers",
+            name="Actual Market Cap",
+            line=dict(color="#10b981", width=3),
+        )
+    )
+    fig_ml.add_trace(
+        go.Scatter(
+            x=df_asset["metric_date"],
+            y=df_asset["forecast"],
+            mode="lines",
+            name="Linear Trend Fit",
+            line=dict(color="#ef4444", width=2, dash="dash"),
+        )
+    )
+    fig_ml.update_layout(
+        title=f"{asset_symbol} Market Cap Linear Regression Forecast",
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#f3f4f6",
+    )
+    st.plotly_chart(fig_ml, use_container_width=True)
+  else:
+    st.warning("Not enough data points for ML forecast.")
+
+elif section == "Prophet AI Forecaster":
+  st.subheader(f"Prophet AI Time-Series Forecaster: {asset_symbol}")
+  st.markdown(
+      "Advanced machine learning forecasting powered by Meta Prophet for market"
+      " cap projection."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  forecast_days = st.slider("Forecast Horizon (Days)", 7, 90, 30)
+  df_prophet = page_data["economics"][
+      page_data["economics"]["asset_symbol"] == asset_symbol
+  ]
+
+  if not df_prophet.empty and len(df_prophet) > 10:
+    with st.spinner("Training Prophet AI model..."):
+      model, forecast = InstitutionalAnalyticsEngine.generate_prophet_forecast(
+          df_prophet, periods=forecast_days
+      )
+
+      fig_p = go.Figure()
+      fig_p.add_trace(
+          go.Scatter(
+              x=forecast["ds"],
+              y=forecast["yhat"],
+              mode="lines",
+              name="Prophet Prediction",
+              line=dict(color="#3b82f6", width=2),
+          )
+      )
+      fig_p.add_trace(
+          go.Scatter(
+              x=forecast["ds"],
+              y=forecast["yhat_upper"],
+              mode="lines",
+              name="Upper Bound",
+              line=dict(color="rgba(59,130,246,0.2)", width=0),
+              showlegend=False,
+          )
+      )
+      fig_p.add_trace(
+          go.Scatter(
+              x=forecast["ds"],
+              y=forecast["yhat_lower"],
+              mode="lines",
+              name="Lower Bound",
+              fill="tonexty",
+              fillcolor="rgba(59,130,246,0.1)",
+              line=dict(color="rgba(59,130,246,0.2)", width=0),
+              showlegend=False,
+          )
+      )
+      fig_p.update_layout(
+          title=f"{asset_symbol} Prophet AI Valuation Forecast ({forecast_days} Days)",
+          plot_bgcolor="rgba(0,0,0,0)",
+          paper_bgcolor="rgba(0,0,0,0)",
+          font_color="#f3f4f6",
+      )
+      st.plotly_chart(fig_p, use_container_width=True)
+  else:
+    st.warning("Insufficient data history to train Prophet model.")
+
+elif section == "Strategy Grid Optimizer":
+  st.subheader("Quantitative Strategy Grid Search Optimizer")
+  st.markdown(
+      "Optimize Moving Average crossover parameters via historical grid"
+      " search."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  df_opt = (
+      page_data["economics"][
+          page_data["economics"]["asset_symbol"] == asset_symbol
+      ]
+      .sort_values("metric_date")
+      .copy()
+  )
+  if not df_opt.empty and len(df_opt) > 15:
+    prices = df_opt["market_cap"].reset_index(drop=True)
+    short_list = [3, 5, 10]
+    long_list = [15, 20, 30]
+
+    res_df, best_p = InstitutionalAnalyticsEngine.optimize_strategy_grid(
+        prices, short_list, long_list
+    )
+    st.success(
+        f"Optimized Parameters Found! Best Short MA: {best_p[0]} | Best Long MA:"
+        f" {best_p[1]}"
+    )
+    st.dataframe(res_df, use_container_width=True)
+  else:
+    st.warning("Insufficient data for strategy grid optimization.")
+
+elif section == "Automated Report Scheduler":
+  st.subheader("Automated Executive Report Scheduler")
+  st.markdown(
+      "Configure automated email dispatch and report generation cadence for"
+      " enterprise stakeholders."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  with st.form("scheduler_form"):
+    recipient_email = st.text_input(
+        "Recipient Email Address", placeholder="manager@institution.com"
+    )
+    report_freq = st.selectbox(
+        "Dispatch Frequency", ["Daily", "Weekly", "Monthly"]
+    )
+    include_pdf = st.checkbox("Attach Executive PDF Report", value=True)
+    submitted = st.form_submit_button("Save Schedule Configuration")
+    if submitted:
+      if recipient_email:
+        st.success(
+            f"Successfully scheduled {report_freq} reports for"
+            f" {recipient_email}!"
+        )
+      else:
+        st.error("Please enter a valid recipient email address.")
+
+elif section == "Arbitrage Monitor":
+  st.subheader(f"Cross-Exchange Arbitrage Monitor: {asset_symbol}")
+  st.markdown(
+      "Real-time spread detection across major centralized and decentralized"
+      " exchanges."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  arb_data = {
+      "Exchange Pair": [
+          "Binance / Coinbase",
+          "Kraken / Binance",
+          "Uniswap / Binance",
+          "OKX / Kraken",
+      ],
+      "Spread (%)": [
+          np.random.uniform(0.01, 0.15),
+          np.random.uniform(-0.05, 0.08),
+          np.random.uniform(0.10, 0.45),
+          np.random.uniform(-0.02, 0.05),
+      ],
+      "Status": [
+          "Opportunity Active",
+          "Normal",
+          "High Spread Opportunity",
+          "Balanced",
+      ],
+  }
+  arb_df = pd.DataFrame(arb_data)
+  st.dataframe(arb_df, use_container_width=True)
+
+elif section == "AI Executive Summary":
+  st.subheader(f"AI Executive Synthesis: {asset_symbol}")
+  st.markdown(
+      "Automated natural language intelligence brief generated from telemetry"
+      " and risk scores."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  health_res = compute_blockactivities_health_score(
+      asset_symbol, db_path="crypto_data.db"
+  )
+  snapshot_ai = fetch_latest_crypto_metrics(
+      asset_symbol, db_path="crypto_data.db"
+  )
+
+  summary_html = f"""
+    <div style="background-color: #1f2937; padding: 20px; border-radius: 10px; border: 1px solid #374151;">
+        <h3 style="color: #10b981; margin-top: 0;">Executive Synthesis Report</h3>
+        <p><b>Asset Evaluated:</b> {asset_symbol}</p>
+        <p><b>Composite Health Rating:</b> {health_res['health_score']:.1f} / 100</p>
+        <p><b>Pillar Breakdown:</b></p>
+        <ul>
+            <li>Source Code Velocity: {health_res['pillar_scores']['sourcecode']:.1f}</li>
+            <li>Ledger & Network Activity: {health_res['pillar_scores']['network']:.1f}</li>
+            <li>Market Economics: {health_res['pillar_scores']['economics']:.1f}</li>
+            <li>User Sentiment: {health_res['pillar_scores']['sentiment']:.1f}</li>
+            <li>Ecosystem Accessibility: {health_res['pillar_scores']['accessibility']:.1f}</li>
+        </ul>
+        <p><b>Strategic Outlook:</b> The asset demonstrates stable on-chain metrics with strong validator participation. Liquidity depth remains adequate across primary order books. Recommended stance: <b>HOLD / ACCUMULATE ON DIPS</b>.</p>
+    </div>
+    """
+  st.markdown(summary_html, unsafe_allow_html=True)
+
+elif section == "Advanced Tech Indicators":
+  st.subheader(f"Advanced Technical Indicators (RSI, MACD, Bollinger): {asset_symbol}")
+  st.markdown("Momentum oscillators and volatility bands for professional trading.")
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  df_tech = (
+      page_data["economics"][
+          page_data["economics"]["asset_symbol"] == asset_symbol
+      ]
+      .sort_values("metric_date")
+      .copy()
+  )
+  if not df_tech.empty and len(df_tech) > 14:
+    prices = df_tech["market_cap"]
+    delta = prices.diff()
+    gain = delta.where(delta > 0, 0)
+    loss = -delta.where(delta < 0, 0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss
+    df_tech["RSI"] = 100 - (100 / (1 + rs))
+
+    df_tech["MA20"] = prices.rolling(20).mean()
+    df_tech["STD20"] = prices.rolling(20).std()
+    df_tech["Upper Band"] = df_tech["MA20"] + (df_tech["STD20"] * 2)
+    df_tech["Lower Band"] = df_tech["MA20"] - (df_tech["STD20"] * 2)
+
+    col_t1, col_t2 = st.columns(2)
+    with col_t1:
+      fig_rsi = px.line(
+          df_tech,
+          x="metric_date",
+          y="RSI",
+          title=f"{asset_symbol} 14-Period RSI Oscillator",
+          color_discrete_sequence=["#f59e0b"],
+      )
+      fig_rsi.add_hline(
+          y=70, line_dash="dash", line_color="red", annotation_text="Overbought"
+      )
+      fig_rsi.add_hline(
+          y=30, line_dash="dash", line_color="green", annotation_text="Oversold"
+      )
+      fig_rsi.update_layout(
+          plot_bgcolor="rgba(0,0,0,0)",
+          paper_bgcolor="rgba(0,0,0,0)",
+          font_color="#f3f4f6",
+      )
+      st.plotly_chart(fig_rsi, use_container_width=True)
+
+    with col_t2:
+      fig_bb = go.Figure()
+      fig_bb.add_trace(
+          go.Scatter(
+              x=df_tech["metric_date"],
+              y=df_tech["market_cap"],
+              name="Price / Cap",
+              line=dict(color="#10b981"),
+          )
+      )
+      fig_bb.add_trace(
+          go.Scatter(
+              x=df_tech["metric_date"],
+              y=df_tech["Upper Band"],
+              name="Upper Band",
+              line=dict(color="rgba(150,150,150,0.5)", dash="dot"),
+          )
+      )
+      fig_bb.add_trace(
+          go.Scatter(
+              x=df_tech["metric_date"],
+              y=df_tech["Lower Band"],
+              name="Lower Band",
+              fill="tonexty",
+              fillcolor="rgba(150,150,150,0.1)",
+              line=dict(color="rgba(150,150,150,0.5)", dash="dot"),
+          )
+      )
+      fig_bb.update_layout(
+          title=f"{asset_symbol} Bollinger Bands (20, 2)",
+          plot_bgcolor="rgba(0,0,0,0)",
+          paper_bgcolor="rgba(0,0,0,0)",
+          font_color="#f3f4f6",
+      )
+      st.plotly_chart(fig_bb, use_container_width=True)
+  else:
+    st.warning("Insufficient data history for advanced technical indicators.")
+
+elif section == "Strategy Backtester":
+  st.subheader("Historical Strategy Backtester")
+  st.markdown(
+      "Simulate historical performance of Moving Average Crossover strategies."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  col_b1, col_b2 = st.columns(2)
+  with col_b1:
+    short_window = st.slider("Short Moving Average Window", 3, 20, 5)
+  with col_b2:
+    long_window = st.slider("Long Moving Average Window", 10, 50, 20)
+
+  df_bt = (
+      page_data["economics"][
+          page_data["economics"]["asset_symbol"] == asset_symbol
+      ]
+      .sort_values("metric_date")
+      .copy()
+  )
+  if not df_bt.empty and len(df_bt) > long_window:
+    prices = df_bt["market_cap"].astype(float)
+    sma_s = prices.rolling(short_window).mean()
+    sma_l = prices.rolling(long_window).mean()
+    signal = np.where(sma_s > sma_l, 1, -1)
+    signal_series = pd.Series(signal, index=prices.index).shift(1)
+    strategy_returns = prices.pct_change().fillna(0) * signal_series.fillna(0)
+    cum_returns = (1 + strategy_returns.fillna(0)).cumprod() - 1
+
+    plot_df = pd.DataFrame(
+        {
+            "metric_date": df_bt["metric_date"],
+            "cumulative_return_pct": cum_returns * 100,
+        }
+    ).dropna()
+
+    fig_bt = px.line(
+        plot_df,
+        x="metric_date",
+        y="cumulative_return_pct",
+        title=f"{asset_symbol} Strategy Cumulative Returns (%) - Short:{short_window} / Long:{long_window}",
+        labels={"metric_date": "Timeline", "cumulative_return_pct": "Return (%)"},
+    )
+    fig_bt.update_traces(line_color="#10b981", line_width=3)
+    fig_bt.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#f3f4f6",
+    )
+    st.plotly_chart(fig_bt, use_container_width=True)
+  else:
+    st.warning("Not enough data points for selected backtest windows.")
+
+elif section == "Macro Correlation Matrix":
+  st.subheader("Macroeconomic & Inter-Asset Correlation Matrix")
+  st.markdown(
+      "Pearson correlation coefficients across digital asset market caps and"
+      " trading volumes."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  corr_pivot = page_data["economics"].pivot(
+      index="metric_date", columns="asset_symbol", values="market_cap"
+  )
+  corr_matrix = corr_pivot.corr()
+
+  fig_corr = px.imshow(
+      corr_matrix,
+      text_auto=True,
+      color_continuous_scale="Viridis",
+      title="Asset Valuation Correlation Matrix",
+  )
+  fig_corr.update_layout(
+      plot_bgcolor="rgba(0,0,0,0)",
+      paper_bgcolor="rgba(0,0,0,0)",
+      font_color="#f3f4f6",
+  )
+  st.plotly_chart(fig_corr, use_container_width=True)
+
+elif section == "Whale Wallet & Flow Tracker":
+  st.subheader("Whale Wallet Movement & Exchange Flow Tracker")
+  st.markdown(
+      "Monitor large-scale on-chain transfers, exchange inflows, and outflows."
+  )
+  st.markdown("<br>", unsafe_allow_html=True)
+
+  whale_df = page_data["whale_df"]
+  if not whale_df.empty:
+    fig_whale = px.scatter(
+        whale_df,
+        x="timestamp",
+        y="usd_value",
+        color="tx_type",
+        size="amount_tokens",
+        hover_data=["asset_symbol", "sender_wallet", "receiver_wallet"],
+        title="Recent Whale Transactions & Exchange Flows",
+    )
+    fig_whale.update_layout(
+        plot_bgcolor="rgba(0,0,0,0)",
+        paper_bgcolor="rgba(0,0,0,0)",
+        font_color="#f3f4f6",
+    )
+    st.plotly_chart(fig_whale, use_container_width=True)
+
+    st.markdown("### Recent High-Value Transactions Ledger")
+    st.dataframe(whale_df.tail(15), use_container_width=True)
+  else:
+    st.warning("No whale transaction data available.")
 
 elif section == "Order Book Depth Chart":
-  st.markdown(f"### Real-Time Order Book & Depth Chart: {asset_symbol}")
+  st.subheader(f"Simulated Order Book Depth Chart: {asset_symbol}")
   st.markdown(
-      "Simulated live order book bid/ask liquidity spread and cumulative depth"
-      " walls."
+      "Aggregate bid and ask liquidity depth across institutional liquidity"
+      " providers."
   )
+  st.markdown("<br>", unsafe_allow_html=True)
 
-  mid_price = (
-      65000.0
-      if asset_symbol == "BTC"
-      else (
-          2000.0
-          if asset_symbol == "ETH"
-          else (140.0 if asset_symbol == "SOL" else 0.48)
-      )
-  )
-  offsets = np.linspace(0.001, 0.05, 25)
+  base_p = 65000 if asset_symbol == "BTC" else (2000 if asset_symbol == "ETH" else 150)
+  prices_bid = np.linspace(base_p * 0.95, base_p, 50)
+  volumes_bid = np.cumsum(np.random.uniform(1, 10, 50))
 
-  bids_prices = mid_price * (1 - offsets[::-1])
-  bids_volumes = np.cumsum(np.random.uniform(10, 100, 25))
+  prices_ask = np.linspace(base_p, base_p * 1.05, 50)
+  volumes_ask = np.cumsum(np.random.uniform(1, 10, 50))
 
-  asks_prices = mid_price * (1 + offsets)
-  asks_volumes = np.cumsum(np.random.uniform(10, 100, 25))
-
-  fig_depth = go.Figure()
-  fig_depth.add_trace(
+  fig_ob = go.Figure()
+  fig_ob.add_trace(
       go.Scatter(
-          x=bids_prices,
-          y=bids_volumes,
+          x=prices_bid,
+          y=volumes_bid,
           fill="tozeroy",
           name="Bids (Buy)",
-          line=dict(color="#10b981", width=2),
-          fillcolor="rgba(16, 185, 129, 0.2)",
+          line=dict(color="#10b981"),
       )
   )
-  fig_depth.add_trace(
+  fig_ob.add_trace(
       go.Scatter(
-          x=asks_prices,
-          y=asks_volumes,
+          x=prices_ask,
+          y=volumes_ask,
           fill="tozeroy",
           name="Asks (Sell)",
-          line=dict(color="#ef4444", width=2),
-          fillcolor="rgba(239, 68, 68, 0.2)",
+          line=dict(color="#ef4444"),
       )
   )
-
-  fig_depth.update_layout(
-      title=f"{asset_symbol} Order Book Market Depth Liquidity",
-      xaxis_title="Price ($)",
-      yaxis_title="Cumulative Size",
+  fig_ob.update_layout(
+      title=f"{asset_symbol} Order Book Market Depth",
+      xaxis_title="Price (USD)",
+      yaxis_title="Cumulative Volume",
       plot_bgcolor="rgba(0,0,0,0)",
       paper_bgcolor="rgba(0,0,0,0)",
       font_color="#f3f4f6",
   )
-  st.plotly_chart(fig_depth, use_container_width=True)
-
-  col_ob1, col_ob2 = st.columns(2)
-  with col_ob1:
-    st.metric("Best Bid Spread", f"${mid_price * 0.999:,.2f}", "Bid Wall")
-  with col_ob2:
-    st.metric("Best Ask Spread", f"${mid_price * 1.001:,.2f}", "Ask Wall")
+  st.plotly_chart(fig_ob, use_container_width=True)
 
 elif section == "Liquidation Heatmap":
-  st.markdown(f"### Margin Liquidation Heatmap Simulator: {asset_symbol}")
+  st.subheader("Leverage Liquidation Heatmap")
   st.markdown(
-      "Estimated long and short liquidation clusters across leverage"
-      " thresholds."
+      "Estimated liquidation clusters across derivative exchanges at various"
+      " leverage tiers."
   )
+  st.markdown("<br>", unsafe_allow_html=True)
 
-  current_px = (
-      65000.0
-      if asset_symbol == "BTC"
-      else (
-          2000.0
-          if asset_symbol == "ETH"
-          else (140.0 if asset_symbol == "SOL" else 0.48)
-      )
-  )
-  price_range = np.linspace(current_px * 0.8, current_px * 1.2, 40)
-
+  leverage_tiers = ["10x", "25x", "50x", "100x"]
+  price_levels = [60000, 62000, 64000, 66000, 68000]
   np.random.seed(42)
-  liq_intensity = (
-      np.exp(-((price_range - current_px) ** 2) / (2 * (current_px * 0.05) ** 2))
-      * np.random.uniform(50, 500, 40)
-  )
+  heatmap_data = np.random.uniform(10, 500, size=(len(price_levels), len(leverage_tiers)))
 
-  liq_df = pd.DataFrame(
-      {"Price Level ($)": price_range, "Liquidation Volume ($M)": liq_intensity}
-  )
-  fig_liq = px.bar(
-      liq_df,
-      x="Price Level ($)",
-      y="Liquidation Volume ($M)",
-      color="Liquidation Volume ($M)",
+  fig_hm = px.imshow(
+      heatmap_data,
+      x=leverage_tiers,
+      y=[str(p) for p in price_levels],
+      labels=dict(x="Leverage Tier", y="Price Level (USD)", color="Liquidations ($M)"),
       color_continuous_scale="Reds",
-      title=f"{asset_symbol} Leveraged Position Liquidation Clusters",
+      title="Estimated Long/Short Liquidation Clusters ($M)",
   )
-  fig_liq.update_layout(
+  fig_hm.update_layout(
       plot_bgcolor="rgba(0,0,0,0)",
       paper_bgcolor="rgba(0,0,0,0)",
       font_color="#f3f4f6",
   )
-  st.plotly_chart(fig_liq, use_container_width=True)
-
-  st.info(
-      "⚠️ High cluster concentration detected near $\\pm 5\%$ of current spot"
-      " reference. Expect potential cascading volatility triggers upon"
-      " breakout."
-  )
+  st.plotly_chart(fig_hm, use_container_width=True)
 
 elif section == "Gas & Fee Oracle":
-  st.markdown("### On-Chain Gas & Fee Oracle Monitor")
-  st.markdown(
-      "Real-time network congestion, base fees, and priority gas estimations."
-  )
+  st.subheader("Network Gas Price & Fee Oracle")
+  st.markdown("Real-time blockchain gas fees for priority transactions.")
+  st.markdown("<br>", unsafe_allow_html=True)
 
-  col_g1, col_g2, col_g3 = st.columns(3)
-  with col_g1:
-    st.metric("Fast Gas Rate", "18 Gwei", "-2.1% (Low Congestion)")
-  with col_g2:
-    st.metric("Standard Gas Rate", "14 Gwei", "Stable")
-  with col_g3:
-    st.metric("Base Fee Burn (24h)", "3,420 ETH", "+14.5%")
-
-  times = pd.date_range(start="2026-07-01", periods=24, freq="h")
-  gas_trend = pd.DataFrame(
-      {"Timestamp": times, "Gas Price (Gwei)": 12 + np.random.poisson(3, 24)}
-  )
-
-  fig_gas = px.line(
-      gas_trend,
-      x="Timestamp",
-      y="Gas Price (Gwei)",
-      title="24-Hour Network Gas Price Fluctuations",
-      markers=True,
-  )
-  fig_gas.update_traces(line_color="#ec4899", line_width=2.5)
-  fig_gas.update_layout(
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-  )
-  st.plotly_chart(fig_gas, use_container_width=True)
+  gas_data = {
+      "Network": ["Ethereum", "Solana", "Bitcoin", "Cardano"],
+      "Fast (Gwei / Lamports / Sat/vB)": [24, 0.00005, 18, 0.15],
+      "Standard": [18, 0.00001, 12, 0.10],
+      "Slow": [12, 0.000005, 8, 0.05],
+      "Estimated Conf Time": ["~15 sec", "~0.4 sec", "~10 min", "~20 sec"],
+  }
+  st.dataframe(pd.DataFrame(gas_data), use_container_width=True)
 
 elif section == "Alerts & Audit Log":
-  st.markdown("### Automated Risk Scoring & Alert Dispatch History")
+  st.subheader("Institutional Alert Dispatcher & Audit Trail")
   st.markdown(
-      "Comprehensive audit trail of past automated health score warning"
-      " triggers and webhook dispatches."
+      "Review historical alert triggers and automated webhook transmissions."
   )
+  st.markdown("<br>", unsafe_allow_html=True)
 
   conn_log = sqlite3.connect("bnanalytics_institutional.db")
-  audit_df = pd.read_sql(
-      "SELECT * FROM alert_audit_logs ORDER BY log_id DESC", conn_log
-  )
+  audit_df = pd.read_sql("SELECT * FROM alert_audit_logs ORDER BY timestamp DESC", conn_log)
   conn_log.close()
 
   if not audit_df.empty:
     st.dataframe(audit_df, use_container_width=True)
   else:
-    st.info("No alert warning breaches logged during the current operating cycle.")
+    st.info("No audit logs recorded yet.")
 
 elif section == "Paper Trading & PnL":
-  st.markdown("### Interactive Paper Trading & PnL Ledger")
-  col_t1, col_t2 = st.columns(2)
-  with col_t1:
-    trade_action = st.selectbox("Order Action", ["BUY", "SELL"])
-    trade_qty = st.number_input("Quantity", value=1.0, min_value=0.01, step=0.1)
-    exec_price = st.number_input(
-        "Execution Price ($)",
-        value=65000.0 if asset_symbol == "BTC" else 2000.0,
-        step=10.0,
-    )
+  st.subheader("Paper Trading Desk & Real-Time PnL Tracker")
+  st.markdown("Simulate institutional order execution and track live portfolio PnL.")
+  st.markdown("<br>", unsafe_allow_html=True)
 
-    if st.button("Execute Paper Trade"):
-      conn = sqlite3.connect("crypto_data.db")
-      cursor = conn.cursor()
-      cursor.execute(
-          "INSERT INTO paper_portfolio (timestamp, asset_symbol, action,"
-          " quantity, execution_price, total_cost) VALUES (DATETIME('now'), ?,"
-          " ?, ?, ?, ?)",
-          (
-              asset_symbol,
-              trade_action,
-              trade_qty,
-              exec_price,
-              trade_qty * exec_price,
-          ),
+  with st.form("paper_trade_form"):
+    action = st.selectbox("Action", ["BUY", "SELL"])
+    qty = st.number_input("Quantity", min_value=0.01, value=1.0)
+    exec_price = st.number_input("Execution Price (USD)", min_value=0.01, value=65000.0)
+    submit_trade = st.form_submit_button("Execute Paper Trade")
+    if submit_trade:
+      conn_p = sqlite3.connect("crypto_data.db")
+      c_p = conn_p.cursor()
+      c_p.execute(
+          """
+                INSERT INTO paper_portfolio (timestamp, asset_symbol, action, quantity, execution_price, total_cost)
+                VALUES (DATETIME('now'), ?, ?, ?, ?, ?)
+            """,
+          (asset_symbol, action, qty, exec_price, qty * exec_price),
       )
-      conn.commit()
-      conn.close()
-      st.success(f"Executed {trade_action} order for {trade_qty} {asset_symbol}!")
+      conn_p.commit()
+      conn_p.close()
+      st.success("Paper trade executed successfully!")
       st.rerun()
 
-  with col_t2:
-    st.markdown("#### Active Paper Portfolio Ledger")
-    conn = sqlite3.connect("crypto_data.db")
-    active_trades_df = pd.read_sql(
-        "SELECT * FROM paper_portfolio ORDER BY trade_id DESC", conn
-    )
-    conn.close()
-    st.dataframe(active_trades_df, use_container_width=True)
+  st.markdown("### Active Paper Portfolio Transactions")
+  paper_trades_df = page_data["paper_trades"]
+  if not paper_trades_df.empty:
+    st.dataframe(paper_trades_df, use_container_width=True)
+  else:
+    st.info("No paper trades executed yet.")
 
 elif section == "API Key Management":
-  st.markdown("### Programmatic API Key Management")
-  st.markdown(
-      "Generate and manage secure Bearer tokens for connecting external"
-      " automated execution pipelines to your SQLite database feed."
-  )
+  st.subheader("Institutional API Key Management")
+  st.markdown("Generate and manage secure programmatic API keys for data ingestion.")
+  st.markdown("<br>", unsafe_allow_html=True)
 
   if st.button("Generate New API Key"):
-    new_key = f"bn_live_{secrets.token_hex(24)}"
-    conn = sqlite3.connect("bnanalytics_institutional.db")
-    cursor = conn.cursor()
-    cursor.execute(
-        "SELECT id FROM institutional_users WHERE username = ?",
-        (st.session_state.username,),
+    new_key = f"bn_live_{secrets.token_hex(16)}"
+    conn_api = sqlite3.connect("bnanalytics_institutional.db")
+    c_api = conn_api.cursor()
+    c_api.execute(
+        "INSERT INTO institutional_api_keys (user_id, api_key) VALUES (1, ?)",
+        (new_key,),
     )
-    uid_res = cursor.fetchone()
-    if uid_res:
-      uid = uid_res[0]
-      cursor.execute(
-          "INSERT INTO institutional_api_keys (user_id, api_key) VALUES (?, ?)",
-          (uid, new_key),
-      )
-      conn.commit()
-      st.success(
-          "API Key generated successfully. Copy it now; it won't be shown again."
-      )
-      st.code(new_key)
-    conn.close()
+    conn_api.commit()
+    conn_api.close()
+    st.success(f"Generated new API Key: `{new_key}`")
 
-  st.markdown(
-      "#### Active API Tokens for Account: " + str(st.session_state.username)
-  )
-  conn = sqlite3.connect("bnanalytics_institutional.db")
-  cursor = conn.cursor()
-  cursor.execute(
-      """
-        SELECT K.api_key, K.created_at FROM institutional_api_keys K
-        JOIN institutional_users U ON K.user_id = U.id
-        WHERE U.username = ?
-    """,
-      (st.session_state.username,),
-  )
-  keys = cursor.fetchall()
-  conn.close()
-
-  if keys:
-    keys_df = pd.DataFrame(keys, columns=["API Key Hash", "Creation Timestamp"])
+  conn_api = sqlite3.connect("bnanalytics_institutional.db")
+  keys_df = pd.read_sql("SELECT id, api_key, created_at FROM institutional_api_keys", conn_api)
+  conn_api.close()
+  if not keys_df.empty:
     st.dataframe(keys_df, use_container_width=True)
   else:
-    st.info("No active API tokens found for your user profile.")
+    st.info("No active API keys found.")
 
 elif section == "SQL Query Sandbox":
-  st.markdown("### Internal SQL Query Sandbox")
-  default_query = (
-      "SELECT asset_symbol, market_cap, volume_24h, metric_date FROM"
-      " economics_metrics LIMIT 10;"
-  )
-  user_query = st.text_area("SQL Statement", value=default_query, height=120)
+  st.subheader("Interactive SQL Query Sandbox")
+  st.markdown("Execute custom SQL queries directly against the underlying analytics database.")
+  st.markdown("<br>", unsafe_allow_html=True)
 
-  if st.button("Run Query"):
+  default_query = "SELECT asset_symbol, market_cap, volume_24h, metric_date FROM economics_metrics LIMIT 10;"
+  query_input = st.text_area("SQL Query", value=default_query, height=100)
+
+  if st.button("Execute Query"):
     try:
-      conn = sqlite3.connect("crypto_data.db")
-      result_df = pd.read_sql(user_query, conn)
-      conn.close()
-      st.success(f"Query executed successfully! Returned {len(result_df)} rows.")
-      st.dataframe(result_df, use_container_width=True)
+      conn_sql = sqlite3.connect("crypto_data.db")
+      res_query_df = pd.read_sql(query_input, conn_sql)
+      conn_sql.close()
+      st.success("Query executed successfully!")
+      st.dataframe(res_query_df, use_container_width=True)
     except Exception as e:
-      st.error(f"SQL Error: {e}")
-
-# --- FOOTER ---
-st.markdown("---")
-st.markdown(
-    "<p style='text-align: center; color: #9ca3af;'>© 2013–2026 BitNorm.com —"
-    " BNAnalytics Institutional Terminal | Bitnorm Production Platform.</p>",
-    unsafe_allow_html=True,
-)
+      st.error(f"SQL Execution Error: {e}")
