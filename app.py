@@ -12,7 +12,12 @@ from analytics import (
     fetch_latest_crypto_metrics,
 )
 from pipeline import generate_all_crypto_metrics, generate_simulated_trades
-from prophet import Prophet
+
+try:
+    from prophet import Prophet
+except ImportError:  # pragma: no cover - fallback for environments without Prophet
+    Prophet = None
+
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -171,22 +176,53 @@ class InstitutionalAnalyticsEngine:
 
   @staticmethod
   def generate_prophet_forecast(df: pd.DataFrame, periods: int = 30):
-    """Generates machine learning time-series forecasts using Meta Prophet."""
+    """Generates a time-series forecast using Prophet when available, otherwise a lightweight fallback."""
     pdf = df.rename(columns={"metric_date": "ds", "market_cap": "y"})[
         ["ds", "y"]
     ].copy()
     pdf["ds"] = pd.to_datetime(pdf["ds"])
 
-    model = Prophet(
-        daily_seasonality=False,
-        weekly_seasonality=True,
-        yearly_seasonality=False,
-    )
-    model.fit(pdf)
+    if Prophet is not None:
+      model = Prophet(
+          daily_seasonality=False,
+          weekly_seasonality=True,
+          yearly_seasonality=False,
+      )
+      model.fit(pdf)
 
-    future = model.make_future_dataframe(periods=periods)
-    forecast = model.predict(future)
-    return model, forecast
+      future = model.make_future_dataframe(periods=periods)
+      forecast = model.predict(future)
+      return model, forecast
+
+    history = pdf["y"].astype(float).to_numpy()
+    if len(history) < 2:
+      forecast = pd.DataFrame({
+          "ds": pd.date_range(pdf["ds"].max() + pd.Timedelta(days=1), periods=periods, freq="D"),
+          "yhat": [float(history[-1])] * periods,
+          "yhat_upper": [float(history[-1])] * periods,
+          "yhat_lower": [float(history[-1])] * periods,
+      })
+      return None, forecast
+
+    x = np.arange(len(history))
+    slope, intercept = np.polyfit(x, history, 1)
+    future_x = np.arange(len(history), len(history) + periods)
+    yhat = intercept + slope * future_x
+
+    residuals = history - (intercept + slope * x)
+    scale = max(float(residuals.std(ddof=0)), 1e-6)
+    future_dates = pd.date_range(
+        pdf["ds"].max() + pd.Timedelta(days=1),
+        periods=periods,
+        freq="D",
+    )
+    forecast = pd.DataFrame({
+        "ds": future_dates,
+        "yhat": yhat,
+        "yhat_upper": yhat + 1.96 * scale,
+        "yhat_lower": yhat - 1.96 * scale,
+    })
+    return None, forecast
 
 
 # --- AUTO SESSION INITIALIZATION ---
