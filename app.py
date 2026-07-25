@@ -12,12 +12,10 @@ from analytics import (
     fetch_latest_crypto_metrics,
 )
 from pipeline import generate_all_crypto_metrics, generate_simulated_trades
-
 try:
     from prophet import Prophet
 except ImportError:  # pragma: no cover - fallback for environments without Prophet
     Prophet = None
-
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter
 from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
@@ -28,7 +26,6 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-
 # Page Configuration with wide layout
 st.set_page_config(
     page_title="BitNorm / BNAnalytics Terminal",
@@ -36,7 +33,6 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded",
 )
-
 # Custom High-End Styling
 st.markdown(
     """
@@ -73,6 +69,12 @@ st.markdown(
     }
     [data-testid="stMetricLabel"] {
         font-size: 0.85rem !important;
+    }
+    .metric-card {
+        background-color: #1f2937;
+        border: 1px solid #374151;
+        padding: 15px;
+        border-radius: 8px;
     }
     .ticker-bar {
         background-color: #1f2937;
@@ -125,11 +127,8 @@ st.markdown(
 """,
     unsafe_allow_html=True,
 )
-
-
 # --- INSTITUTIONAL ANALYTICS ENGINE (ADVANCED CAPABILITIES) ---
 class InstitutionalAnalyticsEngine:
-
   @staticmethod
   def optimize_strategy_grid(
       prices: pd.Series, short_windows: list, long_windows: list
@@ -138,7 +137,6 @@ class InstitutionalAnalyticsEngine:
     best_sharpe = -np.inf
     best_params = (short_windows[0], long_windows[0])
     results = []
-
     for s in short_windows:
       for l in long_windows:
         if s >= l:
@@ -147,7 +145,6 @@ class InstitutionalAnalyticsEngine:
         sma_l = prices.rolling(l).mean()
         signal = np.where(sma_s > sma_l, 1, -1)
         returns = prices.pct_change() * pd.Series(signal).shift(1)
-
         sharpe = (
             (returns.mean() / returns.std()) * np.sqrt(252)
             if returns.std() != 0 and not pd.isna(returns.std())
@@ -159,7 +156,6 @@ class InstitutionalAnalyticsEngine:
             if not returns.empty
             else 0
         )
-
         results.append({
             "Short MA": s,
             "Long MA": l,
@@ -167,13 +163,10 @@ class InstitutionalAnalyticsEngine:
             "Cumulative Return (%)": round(float(cum_ret * 100), 2),
             "Max Drawdown (%)": round(float(max_dd * 100), 2),
         })
-
         if sharpe > best_sharpe:
           best_sharpe = sharpe
           best_params = (s, l)
-
     return pd.DataFrame(results), best_params
-
   @staticmethod
   def generate_prophet_forecast(df: pd.DataFrame, periods: int = 30):
     """Generates a time-series forecast using Prophet when available, otherwise a lightweight fallback."""
@@ -181,7 +174,6 @@ class InstitutionalAnalyticsEngine:
         ["ds", "y"]
     ].copy()
     pdf["ds"] = pd.to_datetime(pdf["ds"])
-
     if Prophet is not None:
       model = Prophet(
           daily_seasonality=False,
@@ -189,11 +181,9 @@ class InstitutionalAnalyticsEngine:
           yearly_seasonality=False,
       )
       model.fit(pdf)
-
       future = model.make_future_dataframe(periods=periods)
       forecast = model.predict(future)
       return model, forecast
-
     history = pdf["y"].astype(float).to_numpy()
     if len(history) < 2:
       forecast = pd.DataFrame({
@@ -203,12 +193,10 @@ class InstitutionalAnalyticsEngine:
           "yhat_lower": [float(history[-1])] * periods,
       })
       return None, forecast
-
     x = np.arange(len(history))
     slope, intercept = np.polyfit(x, history, 1)
     future_x = np.arange(len(history), len(history) + periods)
     yhat = intercept + slope * future_x
-
     residuals = history - (intercept + slope * x)
     scale = max(float(residuals.std(ddof=0)), 1e-6)
     future_dates = pd.date_range(
@@ -223,15 +211,11 @@ class InstitutionalAnalyticsEngine:
         "yhat_lower": yhat - 1.96 * scale,
     })
     return None, forecast
-
-
 # --- AUTO SESSION INITIALIZATION ---
 if "authenticated" not in st.session_state:
   st.session_state.authenticated = True
   st.session_state.username = "admin_lead"
   st.session_state.role = "Admin"
-
-
 def init_rbac_db():
   conn = sqlite3.connect("bnanalytics_institutional.db")
   cursor = conn.cursor()
@@ -266,22 +250,16 @@ def init_rbac_db():
   if cursor.fetchone()[0] == 0:
     default_pass = hashlib.sha256("AdminSecure2026!".encode()).hexdigest()
     cursor.execute(
-        "INSERT INTO institutional_users (username, password_hash, role) VALUES"
-        " (?, ?, ?)",
+        "INSERT INTO institutional_users (username, password_hash, role) VALUES (?, ?, ?)",
         ("admin_lead", default_pass, "Admin"),
     )
   conn.commit()
   conn.close()
-
-
 init_rbac_db()
-
-
 @st.cache_data
 def load_dashboard_data():
   conn = sqlite3.connect("crypto_data.db")
   cursor = conn.cursor()
-
   required_tables = [
       "customer_trades",
       "sourcecode_metrics",
@@ -299,14 +277,12 @@ def load_dashboard_data():
       ).fetchone()
       is None
   ]
-
   if missing_tables:
     conn.close()
     generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
     generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
     conn = sqlite3.connect("crypto_data.db")
     cursor = conn.cursor()
-
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS paper_portfolio (
             trade_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -314,7 +290,6 @@ def load_dashboard_data():
             quantity REAL, execution_price REAL, total_cost REAL
         )
     """)
-
   cursor.execute("""
         CREATE TABLE IF NOT EXISTS whale_transactions (
             tx_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -322,7 +297,6 @@ def load_dashboard_data():
             receiver_wallet TEXT, amount_tokens REAL, usd_value REAL, tx_type TEXT
         )
     """)
-
   cursor.execute("SELECT COUNT(*) FROM whale_transactions")
   if cursor.fetchone()[0] == 0:
     np.random.seed(42)
@@ -359,9 +333,7 @@ def load_dashboard_data():
               np.random.choice(types),
           ),
       )
-
   conn.commit()
-
   trades = pd.read_sql("SELECT * FROM customer_trades", conn)
   sourcecode = pd.read_sql("SELECT * FROM sourcecode_metrics", conn)
   network = pd.read_sql("SELECT * FROM network_metrics", conn)
@@ -371,7 +343,6 @@ def load_dashboard_data():
   paper_trades = pd.read_sql("SELECT * FROM paper_portfolio", conn)
   whale_df = pd.read_sql("SELECT * FROM whale_transactions", conn)
   conn.close()
-
   if "timestamp" in trades.columns:
     trades["timestamp"] = pd.to_datetime(trades["timestamp"])
   for frame in [sourcecode, network, economics, sentiment, accessibility]:
@@ -379,7 +350,6 @@ def load_dashboard_data():
       frame["metric_date"] = pd.to_datetime(frame["metric_date"])
   if "timestamp" in whale_df.columns:
     whale_df["timestamp"] = pd.to_datetime(whale_df["timestamp"])
-
   return {
       "trades": trades,
       "sourcecode": sourcecode,
@@ -390,8 +360,6 @@ def load_dashboard_data():
       "paper_trades": paper_trades,
       "whale_df": whale_df,
   }
-
-
 def format_currency(value):
   if value is None:
     return "—"
@@ -402,15 +370,11 @@ def format_currency(value):
   if abs(value) >= 1e6:
     return f"${value/1e6:,.2f}M"
   return f"${value:,.2f}"
-
-
 def render_metric_cards(metrics):
   cols = st.columns(len(metrics))
   for col, (title, value, delta) in zip(cols, metrics):
     with col:
       st.metric(label=title, value=value, delta=delta)
-
-
 def render_history_chart(frame, metric_name, title, y_label, color="#10b981"):
   if frame.empty:
     st.warning("No historical data available for this selection.")
@@ -434,8 +398,6 @@ def render_history_chart(frame, metric_name, title, y_label, color="#10b981"):
       title_font_size=14,
   )
   st.plotly_chart(fig, use_container_width=True)
-
-
 @st.fragment(run_every=5)
 def render_live_websocket_ticker():
   prices = {"BTC": 65901.0, "ETH": 1927.0, "SOL": 142.50, "ADA": 0.48}
@@ -455,17 +417,14 @@ def render_live_websocket_ticker():
   except Exception:
     prices["BTC"] += np.random.uniform(-10, 10)
     prices["ETH"] += np.random.uniform(-3, 3)
-
   ticker_text = (
-      f"⚡ LIVE STREAMING WS: BTC/USD ${prices['BTC']:,.2f} | ETH/USD"
+      f"LIVE STREAMING WS: BTC/USD ${prices['BTC']:,.2f} | ETH/USD"
       f" ${prices['ETH']:,.2f} | SOL/USD ${prices['SOL']:,.2f} | ADA/USD"
       f" ${prices['ADA']:,.2f}"
   )
   st.markdown(
       f'<div class="ticker-bar">{ticker_text}</div>', unsafe_allow_html=True
   )
-
-
 def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
   buffer = BytesIO()
   doc = SimpleDocTemplate(
@@ -477,7 +436,6 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
       bottomMargin=30,
   )
   story = []
-
   styles = getSampleStyleSheet()
   title_style = ParagraphStyle(
       "TitleStyle",
@@ -508,7 +466,6 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
       textColor=colors.HexColor("#374151"),
       spaceAfter=6,
   )
-
   story.append(
       Paragraph(
           f"BNAnalytics Enterprise Executive Report: {symbol}", title_style
@@ -520,7 +477,6 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
       )
   )
   story.append(Spacer(1, 10))
-
   story.append(Paragraph("1. Composite Health Score Breakdown", heading_style))
   score_summary = (
       f"<b>Overall Health Rating:</b> {health_data['health_score']:.1f} /"
@@ -535,7 +491,6 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
   )
   story.append(Paragraph(score_summary, body_style))
   story.append(Spacer(1, 10))
-
   story.append(
       Paragraph("2. Key Financial & Operational Metrics", heading_style)
   )
@@ -561,107 +516,96 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
       ])
   )
   story.append(t)
-
   doc.build(story)
   buffer.seek(0)
   return buffer
-
-
 page_data = load_dashboard_data()
-
-# --- SIDEBAR NAVIGATION ---
+# --- SIDEBAR NAVIGATION (SITEMAP ALIGNED TO BOSS SPECS) ---
 if "nav_section" not in st.session_state:
   st.session_state.nav_section = "Home"
 if "nav_category" not in st.session_state:
-  st.session_state.nav_category = "Home & Executive Summary"
-
-st.sidebar.image("logo.png", width=45)
+  st.session_state.nav_category = "Landing & Marketing"
+if os.path.exists("logo.png"):
+  st.sidebar.image("logo.png", width=45)
 st.sidebar.title("BNANALYTICS")
 st.sidebar.caption(
     f"User: {st.session_state.username} | Role: {st.session_state.role}"
 )
 st.sidebar.markdown("---")
-
 nav_categories = {
-    "Home & Executive Summary": [
+    "Landing & Marketing": [
         "Home",
-        "AI Executive Summary",
-        "Automated Report Scheduler",
+        "Features Overview",
+        "Pricing",
+        "Docs / API",
+        "Blog / Resources",
     ],
-    "Market & Order Flow": [
-        "Market Economics",
-        "Order Book Depth Chart",
-        "Liquidation Heatmap",
-        "Ecosystem Liquidity",
-        "Whale Wallet & Flow Tracker",
+    "Insights": [
+        "Research Reports",
+        "Market Analysis",
+        "News",
     ],
-    "Trading & Strategies": [
-        "Strategy Backtester",
-        "Strategy Grid Optimizer",
-        "Paper Trading & PnL",
-        "Arbitrage Monitor",
-        "Multi-Asset Comparison",
+    "Analytics & Terminal": [
+        "Overview Dashboard",
+        "Project Explorer",
+        "Project Detail Page",
+        "Settings",
     ],
-    "Analytics & Indicators": [
-        "Advanced Tech Indicators",
-        "Macro Correlation Matrix",
-        "Gas & Fee Oracle",
-        "Social Sentiment",
-        "Ledger Metrics",
+    "Projects & Explorer": [
+        "Categories",
+        "All Projects",
+        "Search",
     ],
-    "AI & Forecasting": [
-        "Predictive ML Forecast",
-        "Prophet AI Forecaster",
-        "Code Intelligence",
+    "Account & Watchlist": [
+        "Profile",
+        "Watchlist",
     ],
-    "System & Risk": [
-        "Portfolio Risk & VaR",
-        "Alerts & Audit Log",
-        "API Key Management",
-        "SQL Query Sandbox",
+    "Learn & Resources": [
+        "Tutorials",
+        "Guides",
+        "Glossary",
     ],
 }
-
-selected_category = st.sidebar.selectbox(
-    "Category",
-    list(nav_categories.keys()),
-    index=list(nav_categories.keys()).index(st.session_state.nav_category),
-    key="nav_category_select",
-)
-
-if selected_category != st.session_state.nav_category:
-  st.session_state.nav_category = selected_category
-  if st.session_state.nav_section not in nav_categories[selected_category]:
-    st.session_state.nav_section = nav_categories[selected_category][0]
-
-available_pages = nav_categories[selected_category]
-page_index = (
-    available_pages.index(st.session_state.nav_section)
-    if st.session_state.nav_section in available_pages
-    else 0
-)
-
+category_for_section = {
+    page: category
+    for category, pages in nav_categories.items()
+    for page in pages
+}
+if st.session_state.nav_section not in category_for_section:
+  st.session_state.nav_section = "Home"
+if st.session_state.nav_category not in nav_categories:
+  st.session_state.nav_category = category_for_section.get(
+      st.session_state.nav_section, "Landing & Marketing"
+  )
+available_pages = nav_categories[st.session_state.nav_category]
+if st.session_state.nav_section not in available_pages:
+  st.session_state.nav_section = available_pages[0]
 st.sidebar.caption("Choose a focused workspace view below")
-section = st.sidebar.selectbox(
-    "View",
-    available_pages,
-    index=page_index,
-    key="nav_section_select",
-)
-st.session_state.nav_section = section
-
+for category_name, pages in nav_categories.items():
+  is_active_category = st.session_state.nav_category == category_name
+  with st.sidebar.expander(
+      category_name,
+      expanded=is_active_category,
+  ):
+    for page_name in pages:
+      if st.sidebar.button(
+          page_name,
+          use_container_width=True,
+          key=f"nav_{category_name}_{page_name}",
+      ):
+        st.session_state.nav_category = category_name
+        st.session_state.nav_section = page_name
+        st.rerun()
 st.sidebar.markdown("---")
 asset_symbol = st.sidebar.selectbox(
     "Target Asset", ["BTC", "ETH", "SOL", "ADA"], index=0
 )
-
 st.sidebar.markdown("---")
-st.sidebar.subheader("🚨 Automated Alert Dispatcher")
+st.sidebar.subheader("Automated Alert Dispatcher")
 alert_health_min = st.sidebar.slider("Min Health Score Warning", 0, 100, 45)
 webhook_url_input = st.sidebar.text_input(
     "Webhook URL (Slack/Telegram)", placeholder="https://hooks.slack.com/..."
 )
-
 current_check_score = compute_blockactivities_health_score(
     asset_symbol, db_path="crypto_data.db"
 )["health_score"]
@@ -669,19 +613,17 @@ if current_check_score < alert_health_min:
   conn_log = sqlite3.connect("bnanalytics_institutional.db")
   c_log = conn_log.cursor()
   c_log.execute(
-      "INSERT INTO alert_audit_logs (asset_symbol, health_score, threshold,"
-      " status) VALUES (?, ?, ?, ?)",
+      "INSERT INTO alert_audit_logs (asset_symbol, health_score, threshold, status) VALUES (?, ?, ?, ?)",
       (asset_symbol, current_check_score, alert_health_min, "Triggered - Warning"),
   )
   conn_log.commit()
   conn_log.close()
-
 if current_check_score < alert_health_min and webhook_url_input:
   if st.sidebar.button("Broadcast Webhook Alert Now"):
     try:
       payload = {
           "text": (
-              f"🚨 BNAnalytics Automatic Dispatch: {asset_symbol} Health Score"
+              f"BNAnalytics Automatic Dispatch: {asset_symbol} Health Score"
               f" dropped to {current_check_score:.1f} (Threshold:"
               f" {alert_health_min})!"
           )
@@ -693,9 +635,8 @@ if current_check_score < alert_health_min and webhook_url_input:
         st.sidebar.warning(f"Webhook response status {res.status_code}")
     except Exception as e:
       st.sidebar.error(f"Connection failed: {e}")
-
 st.sidebar.markdown("---")
-st.sidebar.subheader("📥 Executive Report Exports")
+st.sidebar.subheader("Executive Report Exports")
 export_frame = page_data["economics"][
     page_data["economics"]["asset_symbol"] == asset_symbol
 ]
@@ -707,7 +648,6 @@ if not export_frame.empty:
       file_name=f"{asset_symbol}_bnanalytics.csv",
       mime="text/csv",
   )
-
   snapshot_pdf = fetch_latest_crypto_metrics(
       asset_symbol, db_path="crypto_data.db"
   )
@@ -721,1077 +661,692 @@ if not export_frame.empty:
       snapshot_pdf["network"] or {},
   )
   st.sidebar.download_button(
-      label=f"📄 Download {asset_symbol} Executive PDF",
+      label=f"Download {asset_symbol} Executive PDF",
       data=pdf_buffer,
       file_name=f"{asset_symbol}_Report.pdf",
       mime="application/pdf",
   )
-
-# --- VIEW ROUTING WITH ENRICHED VISUALIZATIONS ---
-if section == "Home":
+# --- VIEW ROUTING & RENDERING ---
+current_view = st.session_state.nav_section
+if current_view == "Home":
   render_live_websocket_ticker()
-
-  st.title("BNAnalytics Production Command Center")
-  st.markdown(
-      "Institutional automated health tracking, multi-dimensional code"
-      " verification, and live data telemetry."
-  )
+  st.markdown("""
+      <div style="background-color: #111827; border: 1px solid #374151; padding: 10px 15px; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 0.85rem; color: #9ca3af; margin-bottom: 20px;">
+          <div><b>Global Cap:</b> <span style="color: #f3f4f6;">$2.48T (+3.4%)</span></div>
+          <div><b>24h Vol:</b> <span style="color: #f3f4f6;">$84.2B</span></div>
+          <div><b>BTC Dominance:</b> <span style="color: #f3f4f6;">54.2%</span></div>
+          <div><b>ETH Gas:</b> <span style="color: #f3f4f6;">14 Gwei</span></div>
+          <div><b>Total Value Locked (TVL):</b> <span style="color: #f3f4f6;">$94.6B</span></div>
+      </div>
+  """, unsafe_allow_html=True)
+  st.markdown("""
+      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border: 1px solid #374151; padding: 35px; border-radius: 12px; text-align: center; margin-bottom: 25px;">
+          <h1 style="font-size: 2.2rem !important; color: #ffffff; margin-bottom: 10px;">Institutional Intelligence for the Blockchain & Smart Contract Ecosystem</h1>
+          <p style="color: #9ca3af; font-size: 1.05rem; max-width: 800px; margin: 0 auto 20px auto;">
+              Unrivaled data telemetry powered by automated GitHub source code ingestion pipelines, advanced economic monitoring, and multi-pillar market intelligence.
+          </p>
+      </div>
+  """, unsafe_allow_html=True)
+  hero_col1, hero_col2, hero_col3 = st.columns([1, 1, 2])
+  with hero_col1:
+      if st.button("Explore Terminal", key="hero_explore_terminal"):
+          st.session_state.nav_section = "Overview Dashboard"
+          st.rerun()
+  with hero_col2:
+      if st.button("View Ecosystem Maps", key="hero_view_ecosystems"):
+          st.session_state.nav_section = "Project Explorer"
+          st.rerun()
   st.markdown("<br>", unsafe_allow_html=True)
-
   current_health_check = compute_blockactivities_health_score(
       asset_symbol, db_path="crypto_data.db"
   )
   score_val = current_health_check["health_score"]
-
   if score_val < alert_health_min:
     st.markdown(
-        f'<div class="alert-box-warning">⚠️ WARNING: {asset_symbol} Health'
+        f'<div class="alert-box-warning">WARNING: {asset_symbol} Health'
         f" Score ({score_val:.1f}) is below your warning threshold of"
         f" {alert_health_min}! Automated webhook dispatch primed.</div>",
         unsafe_allow_html=True,
     )
   else:
     st.markdown(
-        f'<div class="alert-box-success">✅ STATUS NORMAL: {asset_symbol}'
+        f'<div class="alert-box-success">STATUS NORMAL: {asset_symbol}'
         f" Health Score ({score_val:.1f}) is operating within optimal"
         " institutional parameters.</div>",
         unsafe_allow_html=True,
     )
-
-  latest_sentiment_val = fetch_latest_crypto_metrics(
-      asset_symbol, db_path="crypto_data.db"
-  )["sentiment"].get("user_sentiment_index", 50)
-  latest_network_val = fetch_latest_crypto_metrics(
-      asset_symbol, db_path="crypto_data.db"
-  )["network"].get("tx_tps", 0)
-
-  with st.container():
-    st.info(
-        f"**🤖 BNAnalytics Intelligence Brief:** {asset_symbol} shows robust"
-        f" performance with network throughput at {latest_network_val:.2f} TPS"
-        f" and a health rating of {score_val:.1f}/100. Sentiment momentum"
-        f" registers at {latest_sentiment_val:.2f}."
-    )
-
   st.markdown("<br>", unsafe_allow_html=True)
-
-  latest_economics = (
-      page_data["economics"]
-      .sort_values("metric_date")
-      .groupby("asset_symbol")
-      .tail(1)
-  )
-  latest_health = [
-      (
-          s,
-          compute_blockactivities_health_score(
-              s, db_path="crypto_data.db"
-          )["health_score"],
-      )
-      for s in ["BTC", "ETH", "SOL", "ADA"]
-  ]
-  health_df = pd.DataFrame(latest_health, columns=["asset_symbol", "health_score"])
-  latest_economics = latest_economics.merge(
-      health_df, on="asset_symbol", how="left"
-  )
-
-  col1, col2, col3, col4 = st.columns(4)
-  with col1:
-    st.metric(
-        "Global Market Cap",
-        format_currency(latest_economics["market_cap"].sum()),
-        "+4.2%",
-    )
-  with col2:
-    st.metric(
-        "Global 24h Volume",
-        format_currency(latest_economics["volume_24h"].sum()),
-        "+12.8%",
-    )
-  with col3:
-    st.metric(
-        "Avg. Health Score",
-        f"{latest_economics['health_score'].mean():.1f}/100",
-        "Optimized",
-    )
-  with col4:
-    st.metric(
-        "Tracked Assets", f"{len(latest_economics)} Core", "Active"
-    )
-
+  st.markdown("### Ecosystem Health Dashboard")
+  total_repos = len(page_data["sourcecode"]) if "sourcecode" in page_data else 1420
+  active_threads = len(page_data["sentiment"]) if "sentiment" in page_data else 385
+  tagged_contracts = len(page_data["network"]) if "network" in page_data else 5120
+  dash_col1, dash_col2, dash_col3, dash_col4 = st.columns(4)
+  with dash_col1:
+    st.metric("Repositories Tracked", f"{total_repos:,}", "GitHub Scraper")
+  with dash_col2:
+    st.metric("Active Project Threads", f"{active_threads:,}", "BitTalk Ingestion")
+  with dash_col3:
+    st.metric("Smart Contracts Tagged", f"{tagged_contracts:,}", "Custom Framework")
+  with dash_col4:
+    st.metric("Composite Health Average", f"{score_val:.1f}/100", "Optimized")
   st.markdown("---")
-  col_a, col_b = st.columns(2)
-  with col_a:
-    fig_health = px.bar(
-        health_df.sort_values("health_score", ascending=False),
-        x="asset_symbol",
-        y="health_score",
-        color="health_score",
-        color_continuous_scale="Tealgrn",
-        title="BNAnalytics Composite Health Scores",
-    )
-    fig_health.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_health, use_container_width=True)
-
-  with col_b:
-    fig_market = px.bar(
-        latest_economics,
-        x="asset_symbol",
-        y="market_cap",
-        color="market_cap",
-        color_continuous_scale="Purples",
-        title="Market Capitalization Breakdown",
-    )
-    fig_market.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_market, use_container_width=True)
-
-elif section == "Code Intelligence":
-  st.subheader(f"Code Intelligence & Developer Velocity: {asset_symbol}")
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-  latest = snapshot["sourcecode"] or {}
-
-  render_metric_cards([
-      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
-      ("Commit Velocity", f"{latest.get('commits', 0):,}", "Weekly Rate"),
-      ("Active Developers", f"{latest.get('active_devs', 0):,}", "Contributors"),
-  ])
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_c1, col_c2 = st.columns(2)
-  with col_c1:
-    render_history_chart(
-        page_data["sourcecode"][
-            page_data["sourcecode"]["asset_symbol"] == asset_symbol
-        ],
-        "commits",
-        f"{asset_symbol} Commit Trend Line",
-        "Commits",
-        color="#3b82f6",
-    )
-  with col_c2:
-    code_frame = (
-        page_data["sourcecode"][
-            page_data["sourcecode"]["asset_symbol"] == asset_symbol
-        ]
-        .sort_values("metric_date")
-    )
-    if not code_frame.empty:
-      fig_area = px.area(
-          code_frame,
-          x="metric_date",
-          y="commits",
-          title=f"{asset_symbol} Cumulative Commit Volume Area",
-          color_discrete_sequence=["#3b82f6"],
-      )
-      fig_area.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_area, use_container_width=True)
-
-elif section == "Ledger Metrics":
-  st.subheader(f"Ledger Health & Throughput: {asset_symbol}")
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  latest = snapshot["network"] or {}
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-
-  render_metric_cards([
-      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
-      (
-          "Active Addresses",
-          f"{latest.get('active_addresses', 0):,}",
-          "On-Chain Users",
-      ),
-      ("Transactions / Sec (TPS)", f"{latest.get('tx_tps', 0):.2f}", "Throughput"),
-  ])
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_l1, col_l2 = st.columns(2)
-  with col_l1:
-    render_history_chart(
-        page_data["network"][
-            page_data["network"]["asset_symbol"] == asset_symbol
-        ],
-        "tx_tps",
-        f"{asset_symbol} Ledger TPS Performance",
-        "TPS",
-        color="#10b981",
-    )
-  with col_l2:
-    net_frame = (
-        page_data["network"][
-            page_data["network"]["asset_symbol"] == asset_symbol
-        ]
-        .sort_values("metric_date")
-    )
-    if not net_frame.empty:
-      fig_scatter = px.scatter(
-          net_frame,
-          x="metric_date",
-          y="active_addresses",
-          size="tx_tps",
-          color="tx_tps",
-          title=f"{asset_symbol} Active Addresses vs. TPS Scalability",
-          color_continuous_scale="Viridis",
-      )
-      fig_scatter.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_scatter, use_container_width=True)
-
-elif section == "Market Economics":
-  st.subheader(f"Tokenomics & Market Economics: {asset_symbol}")
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  latest = snapshot["economics"] or {}
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-
-  render_metric_cards([
-      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
-      ("Market Cap", format_currency(latest.get("market_cap", 0)), "Valuation"),
-      (
-          "24h Volume",
-          format_currency(latest.get("volume_24h", 0)),
-          "Liquidity",
-      ),
-  ])
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_e1, col_e2 = st.columns(2)
-  with col_e1:
-    render_history_chart(
-        page_data["economics"][
-            page_data["economics"]["asset_symbol"] == asset_symbol
-        ],
-        "market_cap",
-        f"{asset_symbol} Market Cap Valuation Trend",
-        "Market Cap",
-        color="#8b5cf6",
-    )
-  with col_e2:
-    econ_frame = (
-        page_data["economics"][
-            page_data["economics"]["asset_symbol"] == asset_symbol
-        ]
-        .sort_values("metric_date")
-    )
-    if not econ_frame.empty:
-      fig_bar_vol = px.bar(
-          econ_frame,
-          x="metric_date",
-          y="volume_24h",
-          title=f"{asset_symbol} Daily Trading Volume Bar Chart",
-          color="volume_24h",
-          color_continuous_scale="Purples",
-      )
-      fig_bar_vol.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_bar_vol, use_container_width=True)
-
-elif section == "Social Sentiment":
-  st.subheader(f"User Sentiment & Market Mood: {asset_symbol}")
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  latest = snapshot["sentiment"] or {}
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-
-  render_metric_cards([
-      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
-      (
-          "Sentiment Index",
-          f"{latest.get('user_sentiment_index', 0):.3f}",
-          "Aggregated Index",
-      ),
-      (
-          "Buy / Sell Pressure",
-          f"{latest.get('buy_sell_ratio', 0):.2f}",
-          "Ratio",
-      ),
-  ])
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_s1, col_s2 = st.columns(2)
-  with col_s1:
-    render_history_chart(
-        page_data["sentiment"][
-            page_data["sentiment"]["asset_symbol"] == asset_symbol
-        ],
-        "user_sentiment_index",
-        f"{asset_symbol} User Sentiment Evolution",
-        "Sentiment Index",
-        color="#f59e0b",
-    )
-  with col_s2:
-    sent_frame = (
-        page_data["sentiment"][
-            page_data["sentiment"]["asset_symbol"] == asset_symbol
-        ]
-        .sort_values("metric_date")
-    )
-    if not sent_frame.empty:
-      fig_box = px.box(
-          sent_frame,
-          y="buy_sell_ratio",
-          title=f"{asset_symbol} Buy/Sell Pressure Ratio Distribution",
-          color_discrete_sequence=["#f59e0b"],
-      )
-      fig_box.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_box, use_container_width=True)
-
-elif section == "Ecosystem Liquidity":
-  st.subheader(f"Accessibility & Ecosystem Liquidity: {asset_symbol}")
-  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
-  latest = snapshot["accessibility"] or {}
-  health_score = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-
-  render_metric_cards([
-      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
-      (
-          "Exchange Availability",
-          f"{latest.get('exchange_count', 0):,}",
-          "Listings",
-      ),
-      (
-          "Wallet Support Score",
-          f"{latest.get('wallet_support_score', 0):.2f}",
-          "Integration Score",
-      ),
-  ])
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_acc1, col_acc2 = st.columns(2)
-  with col_acc1:
-    render_history_chart(
-        page_data["accessibility"][
-            page_data["accessibility"]["asset_symbol"] == asset_symbol
-        ],
-        "wallet_support_score",
-        f"{asset_symbol} Wallet Support Progress",
-        "Support Score",
-        color="#06b6d4",
-    )
-  with col_acc2:
-    acc_frame = (
-        page_data["accessibility"][
-            page_data["accessibility"]["asset_symbol"] == asset_symbol
-        ]
-        .sort_values("metric_date")
-    )
-    if not acc_frame.empty:
-      fig_hist = px.histogram(
-          acc_frame,
-          x="exchange_count",
-          title=f"{asset_symbol} Exchange Availability Frequency",
-          color_discrete_sequence=["#06b6d4"],
-      )
-      fig_hist.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_hist, use_container_width=True)
-
-elif section == "Multi-Asset Comparison":
-  st.subheader("Cross-Asset Comparative Analysis")
-  st.markdown("Compare key metrics across all tracked digital assets.")
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  comp_df = (
-      page_data["economics"]
-      .sort_values("metric_date")
-      .groupby("asset_symbol")
-      .tail(1)
-  )
-  fig_comp = px.bar(
-      comp_df,
-      x="asset_symbol",
-      y=["market_cap", "volume_24h"],
-      barmode="group",
-      title="Market Capitalization vs 24h Volume Across Assets",
-      labels={"value": "USD ($)", "asset_symbol": "Asset"},
-  )
-  fig_comp.update_layout(
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-  )
-  st.plotly_chart(fig_comp, use_container_width=True)
-
-elif section == "Portfolio Risk & VaR":
-  st.subheader("Institutional Portfolio Risk & Value at Risk (VaR)")
-  st.markdown(
-      "Analyze historical parametric and historical Value at Risk (VaR) for your"
-      " portfolio positions."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  prices_pivot = page_data["economics"].pivot(
-      index="metric_date", columns="asset_symbol", values="market_cap"
-  )
-  returns = prices_pivot.pct_change().dropna()
-  if not returns.empty:
-    portfolio_returns = returns.mean(axis=1)
-    var_95 = np.percentile(portfolio_returns, 5)
-    var_99 = np.percentile(portfolio_returns, 1)
-
-    r_col1, r_col2, r_col3 = st.columns(3)
-    with r_col1:
-      st.metric("Daily VaR (95% Confidence)", f"{var_95*100:.2f}%")
-    with r_col2:
-      st.metric("Daily VaR (99% Confidence)", f"{var_99*100:.2f}%")
-    with r_col3:
-      st.metric(
-          "Portfolio Volatility (Ann.)",
-          f"{portfolio_returns.std() * np.sqrt(252) * 100:.2f}%",
-      )
-
-    st.markdown("---")
-    fig_var = px.histogram(
-        portfolio_returns * 100,
-        nbins=30,
-        title="Portfolio Daily Returns Distribution (%)",
-        labels={"value": "Daily Return (%)"},
-    )
-    fig_var.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_var, use_container_width=True)
-  else:
-    st.warning("Insufficient return data for portfolio VaR calculation.")
-
-elif section == "Predictive ML Forecast":
-  st.subheader(f"Predictive ML Trend Forecasting: {asset_symbol}")
-  st.markdown(
-      "Linear regression and rolling statistical trend projections for valuation"
-      " modeling."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  df_asset = (
-      page_data["economics"][
-          page_data["economics"]["asset_symbol"] == asset_symbol
-      ]
-      .sort_values("metric_date")
-      .copy()
-  )
-  if len(df_asset) > 5:
-    df_asset["days"] = (
-        df_asset["metric_date"] - df_asset["metric_date"].min()
-    ).dt.days
-    x = df_asset["days"].values
-    y = df_asset["market_cap"].values
-    slope, intercept = np.polyfit(x, y, 1)
-    df_asset["forecast"] = intercept + slope * x
-
-    fig_ml = go.Figure()
-    fig_ml.add_trace(
-        go.Scatter(
-            x=df_asset["metric_date"],
-            y=df_asset["market_cap"],
-            mode="lines+markers",
-            name="Actual Market Cap",
-            line=dict(color="#10b981", width=3),
-        )
-    )
-    fig_ml.add_trace(
-        go.Scatter(
-            x=df_asset["metric_date"],
-            y=df_asset["forecast"],
-            mode="lines",
-            name="Linear Trend Fit",
-            line=dict(color="#ef4444", width=2, dash="dash"),
-        )
-    )
-    fig_ml.update_layout(
-        title=f"{asset_symbol} Market Cap Linear Regression Forecast",
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_ml, use_container_width=True)
-  else:
-    st.warning("Not enough data points for ML forecast.")
-
-elif section == "Prophet AI Forecaster":
-  st.subheader(f"Prophet AI Time-Series Forecaster: {asset_symbol}")
-  st.markdown(
-      "Advanced machine learning forecasting powered by Meta Prophet for market"
-      " cap projection."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  forecast_days = st.slider("Forecast Horizon (Days)", 7, 90, 30)
-  df_prophet = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ]
-
-  if not df_prophet.empty and len(df_prophet) > 10:
-    with st.spinner("Training Prophet AI model..."):
-      model, forecast = InstitutionalAnalyticsEngine.generate_prophet_forecast(
-          df_prophet, periods=forecast_days
-      )
-
-      fig_p = go.Figure()
-      fig_p.add_trace(
-          go.Scatter(
-              x=forecast["ds"],
-              y=forecast["yhat"],
-              mode="lines",
-              name="Prophet Prediction",
-              line=dict(color="#3b82f6", width=2),
-          )
-      )
-      fig_p.add_trace(
-          go.Scatter(
-              x=forecast["ds"],
-              y=forecast["yhat_upper"],
-              mode="lines",
-              name="Upper Bound",
-              line=dict(color="rgba(59,130,246,0.2)", width=0),
-              showlegend=False,
-          )
-      )
-      fig_p.add_trace(
-          go.Scatter(
-              x=forecast["ds"],
-              y=forecast["yhat_lower"],
-              mode="lines",
-              name="Lower Bound",
-              fill="tonexty",
-              fillcolor="rgba(59,130,246,0.1)",
-              line=dict(color="rgba(59,130,246,0.2)", width=0),
-              showlegend=False,
-          )
-      )
-      fig_p.update_layout(
-          title=f"{asset_symbol} Prophet AI Valuation Forecast ({forecast_days} Days)",
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_p, use_container_width=True)
-  else:
-    st.warning("Insufficient data history to train Prophet model.")
-
-elif section == "Strategy Grid Optimizer":
-  st.subheader("Quantitative Strategy Grid Search Optimizer")
-  st.markdown(
-      "Optimize Moving Average crossover parameters via historical grid"
-      " search."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  df_opt = (
-      page_data["economics"][
-          page_data["economics"]["asset_symbol"] == asset_symbol
-      ]
-      .sort_values("metric_date")
-      .copy()
-  )
-  if not df_opt.empty and len(df_opt) > 15:
-    prices = df_opt["market_cap"].reset_index(drop=True)
-    short_list = [3, 5, 10]
-    long_list = [15, 20, 30]
-
-    res_df, best_p = InstitutionalAnalyticsEngine.optimize_strategy_grid(
-        prices, short_list, long_list
-    )
-    st.success(
-        f"Optimized Parameters Found! Best Short MA: {best_p[0]} | Best Long MA:"
-        f" {best_p[1]}"
-    )
-    st.dataframe(res_df, use_container_width=True)
-  else:
-    st.warning("Insufficient data for strategy grid optimization.")
-
-elif section == "Automated Report Scheduler":
-  st.subheader("Automated Executive Report Scheduler")
-  st.markdown(
-      "Configure automated email dispatch and report generation cadence for"
-      " enterprise stakeholders."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  with st.form("scheduler_form"):
-    recipient_email = st.text_input(
-        "Recipient Email Address", placeholder="manager@institution.com"
-    )
-    report_freq = st.selectbox(
-        "Dispatch Frequency", ["Daily", "Weekly", "Monthly"]
-    )
-    include_pdf = st.checkbox("Attach Executive PDF Report", value=True)
-    submitted = st.form_submit_button("Save Schedule Configuration")
-    if submitted:
-      if recipient_email:
-        st.success(
-            f"Successfully scheduled {report_freq} reports for"
-            f" {recipient_email}!"
-        )
-      else:
-        st.error("Please enter a valid recipient email address.")
-
-elif section == "Arbitrage Monitor":
-  st.subheader(f"Cross-Exchange Arbitrage Monitor: {asset_symbol}")
-  st.markdown(
-      "Real-time spread detection across major centralized and decentralized"
-      " exchanges."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  arb_data = {
-      "Exchange Pair": [
-          "Binance / Coinbase",
-          "Kraken / Binance",
-          "Uniswap / Binance",
-          "OKX / Kraken",
-      ],
-      "Spread (%)": [
-          np.random.uniform(0.01, 0.15),
-          np.random.uniform(-0.05, 0.08),
-          np.random.uniform(0.10, 0.45),
-          np.random.uniform(-0.02, 0.05),
-      ],
-      "Status": [
-          "Opportunity Active",
-          "Normal",
-          "High Spread Opportunity",
-          "Balanced",
-      ],
-  }
-  arb_df = pd.DataFrame(arb_data)
-  st.dataframe(arb_df, use_container_width=True)
-
-elif section == "AI Executive Summary":
-  st.subheader(f"AI Executive Synthesis: {asset_symbol}")
-  st.markdown(
-      "Automated natural language intelligence brief generated from telemetry"
-      " and risk scores."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  health_res = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-  snapshot_ai = fetch_latest_crypto_metrics(
-      asset_symbol, db_path="crypto_data.db"
-  )
-
-  summary_html = f"""
-    <div style="background-color: #1f2937; padding: 20px; border-radius: 10px; border: 1px solid #374151;">
-        <h3 style="color: #10b981; margin-top: 0;">Executive Synthesis Report</h3>
-        <p><b>Asset Evaluated:</b> {asset_symbol}</p>
-        <p><b>Composite Health Rating:</b> {health_res['health_score']:.1f} / 100</p>
-        <p><b>Pillar Breakdown:</b></p>
-        <ul>
-            <li>Source Code Velocity: {health_res['pillar_scores']['sourcecode']:.1f}</li>
-            <li>Ledger & Network Activity: {health_res['pillar_scores']['network']:.1f}</li>
-            <li>Market Economics: {health_res['pillar_scores']['economics']:.1f}</li>
-            <li>User Sentiment: {health_res['pillar_scores']['sentiment']:.1f}</li>
-            <li>Ecosystem Accessibility: {health_res['pillar_scores']['accessibility']:.1f}</li>
-        </ul>
-        <p><b>Strategic Outlook:</b> The asset demonstrates stable on-chain metrics with strong validator participation. Liquidity depth remains adequate across primary order books. Recommended stance: <b>HOLD / ACCUMULATE ON DIPS</b>.</p>
-    </div>
-    """
-  st.markdown(summary_html, unsafe_allow_html=True)
-
-elif section == "Advanced Tech Indicators":
-  st.subheader(f"Advanced Technical Indicators (RSI, MACD, Bollinger): {asset_symbol}")
-  st.markdown("Momentum oscillators and volatility bands for professional trading.")
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  df_tech = (
-      page_data["economics"][
-          page_data["economics"]["asset_symbol"] == asset_symbol
-      ]
-      .sort_values("metric_date")
-      .copy()
-  )
-  if not df_tech.empty and len(df_tech) > 14:
-    prices = df_tech["market_cap"]
-    delta = prices.diff()
-    gain = delta.where(delta > 0, 0)
-    loss = -delta.where(delta < 0, 0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss
-    df_tech["RSI"] = 100 - (100 / (1 + rs))
-
-    df_tech["MA20"] = prices.rolling(20).mean()
-    df_tech["STD20"] = prices.rolling(20).std()
-    df_tech["Upper Band"] = df_tech["MA20"] + (df_tech["STD20"] * 2)
-    df_tech["Lower Band"] = df_tech["MA20"] - (df_tech["STD20"] * 2)
-
-    col_t1, col_t2 = st.columns(2)
-    with col_t1:
-      fig_rsi = px.line(
-          df_tech,
-          x="metric_date",
-          y="RSI",
-          title=f"{asset_symbol} 14-Period RSI Oscillator",
-          color_discrete_sequence=["#f59e0b"],
-      )
-      fig_rsi.add_hline(
-          y=70, line_dash="dash", line_color="red", annotation_text="Overbought"
-      )
-      fig_rsi.add_hline(
-          y=30, line_dash="dash", line_color="green", annotation_text="Oversold"
-      )
-      fig_rsi.update_layout(
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_rsi, use_container_width=True)
-
-    with col_t2:
-      fig_bb = go.Figure()
-      fig_bb.add_trace(
-          go.Scatter(
-              x=df_tech["metric_date"],
-              y=df_tech["market_cap"],
-              name="Price / Cap",
-              line=dict(color="#10b981"),
-          )
-      )
-      fig_bb.add_trace(
-          go.Scatter(
-              x=df_tech["metric_date"],
-              y=df_tech["Upper Band"],
-              name="Upper Band",
-              line=dict(color="rgba(150,150,150,0.5)", dash="dot"),
-          )
-      )
-      fig_bb.add_trace(
-          go.Scatter(
-              x=df_tech["metric_date"],
-              y=df_tech["Lower Band"],
-              name="Lower Band",
-              fill="tonexty",
-              fillcolor="rgba(150,150,150,0.1)",
-              line=dict(color="rgba(150,150,150,0.5)", dash="dot"),
-          )
-      )
-      fig_bb.update_layout(
-          title=f"{asset_symbol} Bollinger Bands (20, 2)",
-          plot_bgcolor="rgba(0,0,0,0)",
-          paper_bgcolor="rgba(0,0,0,0)",
-          font_color="#f3f4f6",
-      )
-      st.plotly_chart(fig_bb, use_container_width=True)
-  else:
-    st.warning("Insufficient data history for advanced technical indicators.")
-
-elif section == "Strategy Backtester":
-  st.subheader("Historical Strategy Backtester")
-  st.markdown(
-      "Simulate historical performance of Moving Average Crossover strategies."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  col_b1, col_b2 = st.columns(2)
-  with col_b1:
-    short_window = st.slider("Short Moving Average Window", 3, 20, 5)
-  with col_b2:
-    long_window = st.slider("Long Moving Average Window", 10, 50, 20)
-
-  df_bt = (
-      page_data["economics"][
-          page_data["economics"]["asset_symbol"] == asset_symbol
-      ]
-      .sort_values("metric_date")
-      .copy()
-  )
-  if not df_bt.empty and len(df_bt) > long_window:
-    prices = df_bt["market_cap"].astype(float)
-    sma_s = prices.rolling(short_window).mean()
-    sma_l = prices.rolling(long_window).mean()
-    signal = np.where(sma_s > sma_l, 1, -1)
-    signal_series = pd.Series(signal, index=prices.index).shift(1)
-    strategy_returns = prices.pct_change().fillna(0) * signal_series.fillna(0)
-    cum_returns = (1 + strategy_returns.fillna(0)).cumprod() - 1
-
-    plot_df = pd.DataFrame(
-        {
-            "metric_date": df_bt["metric_date"],
-            "cumulative_return_pct": cum_returns * 100,
+  st.markdown("### Trending & High-Velocity Projects Leaderboard")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.9rem;'>Top protocols ranked by source code velocity metrics and community tagging systems rather than raw price action alone.</p>", unsafe_allow_html=True)
+  leaderboard_data = []
+  for sym in ["BTC", "ETH", "SOL", "ADA"]:
+      h_score = compute_blockactivities_health_score(sym, db_path="crypto_data.db")["health_score"]
+      leaderboard_data.append({
+          "Protocol": sym,
+          "Code Velocity Index": round(h_score * 0.95, 1),
+          "Commit Activity (7d)": f"+{int(h_score * 3.4)} commits",
+          "Ecosystem Tag": "Layer-1 / Smart Contracts",
+          "Health Rating": f"{h_score:.1f} / 100"
+      })
+  lb_df = pd.DataFrame(leaderboard_data).sort_values(by="Code Velocity Index", ascending=False)
+  st.dataframe(lb_df, use_container_width=True, hide_index=True)
+elif current_view == "Features Overview":
+    st.subheader("BNAnalytics Feature Suite")
+    st.markdown("<p style='color: #9ca3af; font-size: 0.95rem; margin-bottom: 25px;'>Explore the enterprise-grade modules engineered to deliver deep telemetry, automated risk control, and multi-pillar market intelligence.</p>", unsafe_allow_html=True)
+    col_f1, col_f2 = st.columns(2)
+    with col_f1:
+        st.markdown("""
+            <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; margin-bottom: 20px; min-height: 210px;">
+                <h3 style="color: #10b981; margin-top: 0;">Institutional Analytics & Backtesting</h3>
+                <p style="color: #9ca3af; font-size: 0.88rem; line-height: 1.5;">
+                    Optimize strategies via advanced grid searches, Sharpe ratio evaluations, maximum drawdown constraints, and moving average crossover simulations across historical token data.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+            <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; margin-bottom: 20px; min-height: 210px;">
+                <h3 style="color: #3b82f6; margin-top: 0;">Multi-Pillar Metrics Telemetry</h3>
+                <p style="color: #9ca3af; font-size: 0.88rem; line-height: 1.5;">
+                    Deep-dive verification spanning GitHub source code velocity, on-chain ledger throughput, macro market economics, accessibility indices, and community sentiment tracking.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+    with col_f2:
+        st.markdown("""
+            <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; margin-bottom: 20px; min-height: 210px;">
+                <h3 style="color: #8b5cf6; margin-top: 0;">Automated Alert Dispatcher</h3>
+                <p style="color: #9ca3af; font-size: 0.88rem; line-height: 1.5;">
+                    Real-time threshold auditing with customizable webhooks for Slack and Telegram channels. Automatically log and broadcast alerts when asset health scores fluctuate.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+        st.markdown("""
+            <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; margin-bottom: 20px; min-height: 210px;">
+                <h3 style="color: #f59e0b; margin-top: 0;">Executive PDF & CSV Reporting</h3>
+                <p style="color: #9ca3af; font-size: 0.88rem; line-height: 1.5;">
+                    Generate structured, boardroom-ready PDF executive summaries containing composite health ratings, data tables, and raw CSV feeds straight from the sidebar.
+                </p>
+            </div>
+        """, unsafe_allow_html=True)
+elif current_view == "Pricing":
+  st.subheader("Institutional Subscription Tiers")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.95rem; margin-bottom: 25px;'>Flexible, scalable pricing engineered for developers, quantitative funds, and enterprise-grade blockchain infrastructure.</p>", unsafe_allow_html=True)
+  col_p1, col_p2, col_p3, col_p4 = st.columns(4)
+  with col_p1:
+    st.markdown("""
+        <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; min-height: 340px;">
+            <h3 style="color: #60a5fa; margin-top: 0;">Developer</h3>
+            <p style="font-size: 1.4rem; font-weight: bold; color: #ffffff; margin-bottom: 15px;">Free</p>
+            <ul style="color: #9ca3af; font-size: 0.85rem; padding-left: 18px; line-height: 1.6;">
+                <li>100K API Call Credits / mo</li>
+                <li>300 Rate Limit / min</li>
+                <li>Basic REST Endpoints</li>
+                <li>Public Market Feeds</li>
+                <li>Community Support</li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
+  with col_p2:
+    st.markdown("""
+        <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; min-height: 340px;">
+            <h3 style="color: #34d399; margin-top: 0;">Analyst</h3>
+            <p style="font-size: 1.4rem; font-weight: bold; color: #ffffff; margin-bottom: 15px;">$129 <span style="font-size: 0.8rem; color: #9ca3af;">/ mo</span></p>
+            <ul style="color: #9ca3af; font-size: 0.85rem; padding-left: 18px; line-height: 1.6;">
+                <li>500K Call Credits / mo</li>
+                <li>WebSocket Live Streaming</li>
+                <li>Automated Webhook Alerts</li>
+                <li>10 Years Historical Data</li>
+                <li>Priority Email Support</li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
+  with col_p3:
+    st.markdown("""
+        <div style="background-color: #1f2937; border: 1px solid #10b981; padding: 20px; border-radius: 10px; min-height: 340px; position: relative;">
+            <div style="position: absolute; top: -10px; right: 15px; background-color: #10b981; color: #000000; font-size: 0.65rem; font-weight: bold; padding: 2px 8px; border-radius: 4px;">POPULAR</div>
+            <h3 style="color: #10b981; margin-top: 0;">Fund Manager</h3>
+            <p style="font-size: 1.4rem; font-weight: bold; color: #ffffff; margin-bottom: 15px;">$999 <span style="font-size: 0.8rem; color: #9ca3af;">/ mo</span></p>
+            <ul style="color: #9ca3af; font-size: 0.85rem; padding-left: 18px; line-height: 1.6;">
+                <li>Full Terminal Access</li>
+                <li>Advanced Strategy Backtesting</li>
+                <li>2M+ Call Credits / mo</li>
+                <li>Executive PDF & CSV Reports</li>
+                <li>Multi-Pillar Telemetry Feeds</li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
+  with col_p4:
+    st.markdown("""
+        <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 10px; min-height: 340px;">
+            <h3 style="color: #a78bfa; margin-top: 0;">Enterprise</h3>
+            <p style="font-size: 1.4rem; font-weight: bold; color: #ffffff; margin-bottom: 15px;">Custom</p>
+            <ul style="color: #9ca3af; font-size: 0.85rem; padding-left: 18px; line-height: 1.6;">
+                <li>Dedicated Nodes & Infrastructure</li>
+                <li>Custom Data Pipelines</li>
+                <li>99.9% Uptime SLA</li>
+                <li>Regulatory Compliance & Auditing</li>
+                <li>Priority Slack & Phone Support</li>
+            </ul>
+        </div>
+    """, unsafe_allow_html=True)
+elif current_view == "Docs / API":
+  st.subheader("Documentation & API Access")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.95rem; margin-bottom: 20px;'>Access programmatic blockchain insights, historical telemetry, and real-time order flows via our REST and WebSocket endpoints.</p>", unsafe_allow_html=True)
+  doc_tab1, doc_tab2, doc_tab3 = st.tabs(["Interactive Playground", "Endpoints & Reference", "Authentication & Errors"])
+  with doc_tab1:
+    st.markdown("### Live API Sandbox")
+    st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Test endpoint parameters live and view live JSON payloads directly within the terminal.</p>", unsafe_allow_html=True)
+    
+    col_play1, col_play2 = st.columns(2)
+    with col_play1:
+      sandbox_symbol = st.selectbox("Select Asset Symbol", ["BTC", "ETH", "SOL", "ADA"], key="sandbox_sym")
+      sandbox_endpoint = st.selectbox("Select Endpoint", ["/v1/metrics", "/v1/economics", "/v1/network"], key="sandbox_endpoint")
+    with col_play2:
+      sandbox_key = st.text_input("API Key", value="bn_live_99f8a2c10b", type="password", key="sandbox_key")
+      
+    if st.button("Execute API Request", key="run_sandbox_req"):
+      with st.spinner("Fetching data from BNAnalytics node..."):
+        t_mod.sleep(0.6)
+        sample_payload = {
+            "status": "success",
+            "code": 200,
+            "timestamp": pd.Timestamp.now().isoformat(),
+            "data": {
+                "symbol": sandbox_symbol,
+                "endpoint": sandbox_endpoint,
+                "market_cap": 1284500000000 if sandbox_symbol == "BTC" else 450000000000,
+                "tps_throughput": 42.5 if sandbox_symbol == "SOL" else 14.2,
+                "health_score": float(compute_blockactivities_health_score(sandbox_symbol, db_path="crypto_data.db")["health_score"])
+            }
         }
-    ).dropna()
-
-    fig_bt = px.line(
-        plot_df,
-        x="metric_date",
-        y="cumulative_return_pct",
-        title=f"{asset_symbol} Strategy Cumulative Returns (%) - Short:{short_window} / Long:{long_window}",
-        labels={"metric_date": "Timeline", "cumulative_return_pct": "Return (%)"},
-    )
-    fig_bt.update_traces(line_color="#10b981", line_width=3)
-    fig_bt.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_bt, use_container_width=True)
-  else:
-    st.warning("Not enough data points for selected backtest windows.")
-
-elif section == "Macro Correlation Matrix":
-  st.subheader("Macroeconomic & Inter-Asset Correlation Matrix")
-  st.markdown(
-      "Pearson correlation coefficients across digital asset market caps and"
-      " trading volumes."
+        st.success("Request processed successfully (200 OK)")
+        st.json(sample_payload)
+  with doc_tab2:
+    st.markdown("### Core API Endpoints")
+    endpoint_data = [
+        {"Endpoint": "/v1/metrics", "Method": "GET", "Description": "Retrieves multi-pillar composite health scores."},
+        {"Endpoint": "/v1/economics", "Method": "GET", "Description": "Returns market capitalization and 24h trading volume."},
+        {"Endpoint": "/v1/network", "Method": "GET", "Description": "Streams active addresses and TPS throughput data."},
+        {"Endpoint": "/v1/stream/ws", "Method": "WEBSOCKET", "Description": "Low-latency bidirectional feed for real-time tickers."}
+    ]
+    st.dataframe(pd.DataFrame(endpoint_data), use_container_width=True, hide_index=True)
+    st.markdown("### Code Snippets")
+    lang_tab1, lang_tab2, lang_tab3 = st.tabs(["Python", "cURL", "Node.js"])
+    with lang_tab1:
+      st.code("import requests\n\nheaders = {'X-API-Key': 'YOUR_API_KEY'}\nres = requests.get('https://api.bnanalytics.io/v1/metrics?symbol=BTC', headers=headers)\nprint(res.json())", language="python")
+    with lang_tab2:
+      st.code("curl -X GET 'https://api.bnanalytics.io/v1/metrics?symbol=BTC' \\\n  -H 'X-API-Key: YOUR_API_KEY'", language="bash")
+    with lang_tab3:
+      st.code("const response = await fetch('https://api.bnanalytics.io/v1/metrics?symbol=BTC', {\n  headers: { 'X-API-Key': 'YOUR_API_KEY' }\n});\nconst data = await response.json();\nconsole.log(data);", language="javascript")
+  with doc_tab3:
+    st.markdown("### Authentication & Error Handling")
+    st.markdown("""
+        * **Authentication**: All requests must include your institutional API key via the `X-API-Key` request header.
+        * **Rate Limits**: Standard tiers permit up to **300 requests per minute**. Enterprise tiers feature dedicated unthrottled gateway routing.
+        * **Error Codes**:
+            * `400 Bad Request`: Missing or invalid query parameters (e.g., unknown asset symbol).
+            * `401 Unauthorized`: Missing or expired API key. Check your credentials in the dashboard profile.
+            * `429 Too Many Requests`: Rate limit exceeded. Implement exponential backoff before retrying.
+    """)
+elif current_view == "Blog / Resources":
+    st.subheader("Research Blog & Institutional Resources Portal")
+    st.markdown("Explore comprehensive institutional briefs, categorized learning tracks, macroeconomic market research, on-chain glossaries, and regulatory compliance updates.")
+    
+    blog_tab1, blog_tab2, blog_tab3, blog_tab4, blog_tab5 = st.tabs([
+        "📚 Categorized Content Tracks",
+        "🎥 Masterclasses & Video Hub",
+        "📊 Macro & Market Insights",
+        "📖 Crypto Glossary Index",
+        "⚖️ Regulatory & Compliance"
+    ])
+    
+    with blog_tab1:
+        st.markdown("### Structured Learning Tracks")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Filter institutional modules by proficiency level and core focus area.</p>", unsafe_allow_html=True)
+        
+        track_filter = st.selectbox("Select Proficiency Track", ["All Tracks", "Beginner Basics", "Intermediate Protocol Architecture", "Advanced Quantitative Strategies"])
+        
+        col_b1, col_b2 = st.columns(2)
+        with col_b1:
+            if track_filter in ["All Tracks", "Beginner Basics"]:
+                st.markdown("""
+                    <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px; margin-bottom: 15px;">
+                        <span style="background-color: #3b82f6; color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: bold;">BEGINNER BASICS</span>
+                        <h4 style="color: #ffffff; margin-top: 8px; margin-bottom: 6px;">Understanding On-Chain Liquidity & Order Flow Dynamics</h4>
+                        <p style="color: #9ca3af; font-size: 0.82rem; line-height: 1.4;">A foundational overview of how liquidity pools, order book depth, and market maker activities dictate digital asset pricing stability.</p>
+                        <span style="color: #10b981; font-size: 0.78rem; font-weight: 500;">Reading Time: 6 mins</span>
+                    </div>
+                """, unsafe_allow_html=True)
+            if track_filter in ["All Tracks", "Intermediate Protocol Architecture"]:
+                st.markdown("""
+                    <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px; margin-bottom: 15px;">
+                        <span style="background-color: #8b5cf6; color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: bold;">INTERMEDIATE</span>
+                        <h4 style="color: #ffffff; margin-top: 8px; margin-bottom: 6px;">Layer-2 Throughput Scalability & Rollup Architectures</h4>
+                        <p style="color: #9ca3af; font-size: 0.82rem; line-height: 1.4;">Deep dive into optimistic versus zero-knowledge rollups, data availability sampling, and transaction throughput bottlenecks.</p>
+                        <span style="color: #10b981; font-size: 0.78rem; font-weight: 500;">Reading Time: 12 mins</span>
+                    </div>
+                """, unsafe_allow_html=True)
+        with col_b2:
+            if track_filter in ["All Tracks", "Advanced Quantitative Strategies"]:
+                st.markdown("""
+                    <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px; margin-bottom: 15px;">
+                        <span style="background-color: #f59e0b; color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: bold;">ADVANCED</span>
+                        <h4 style="color: #ffffff; margin-top: 8px; margin-bottom: 6px;">Tokenomics Optimization & Mathematical Incentive Design</h4>
+                        <p style="color: #9ca3af; font-size: 0.82rem; line-height: 1.4;">Rigorous mathematical framework for balancing emission schedules, staking velocity, and protocol utility curves to prevent inflationary decay.</p>
+                        <span style="color: #10b981; font-size: 0.78rem; font-weight: 500;">Reading Time: 18 mins</span>
+                    </div>
+                """, unsafe_allow_html=True)
+            if track_filter in ["All Tracks", "Advanced Quantitative Strategies"]:
+                st.markdown("""
+                    <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px; margin-bottom: 15px;">
+                        <span style="background-color: #f59e0b; color: #fff; font-size: 0.65rem; padding: 2px 6px; border-radius: 4px; font-weight: bold;">ADVANCED</span>
+                        <h4 style="color: #ffffff; margin-top: 8px; margin-bottom: 6px;">DeFi Liquidity Crunch & Stress-Testing Automated Market Makers</h4>
+                        <p style="color: #9ca3af; font-size: 0.82rem; line-height: 1.4;">Analysis of systemic cascading liquidations, impermanent loss mitigation models, and collateral debt position risk bounds.</p>
+                        <span style="color: #10b981; font-size: 0.78rem; font-weight: 500;">Reading Time: 15 mins</span>
+                    </div>
+                """, unsafe_allow_html=True)
+    with blog_tab2:
+        st.markdown("### Masterclasses & Interactive Video Tutorials")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Watch expert walkthroughs covering terminal setup, API integration, and chart analytics.</p>", unsafe_allow_html=True)
+        
+        vid_col1, vid_col2 = st.columns(2)
+        with vid_col1:
+            st.markdown("""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 15px; border-radius: 8px;">
+                    <div style="background-color: #111827; height: 130px; display: flex; align-items: center; justify-content: center; border-radius: 6px; margin-bottom: 10px; color: #10b981; font-weight: bold;">▶ [Embed Video] Terminal Setup Walkthrough</div>
+                    <h4 style="color: #ffffff; margin-bottom: 4px;">Mastering BNAnalytics Terminal Navigation</h4>
+                    <p style="color: #9ca3af; font-size: 0.8rem;">Learn how to configure multi-pillar custom views, set up real-time websocket streams, and dispatch automated webhook alerts.</p>
+                </div>
+            """, unsafe_allow_html=True)
+        with vid_col2:
+            st.markdown("""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 15px; border-radius: 8px;">
+                    <div style="background-color: #111827; height: 130px; display: flex; align-items: center; justify-content: center; border-radius: 6px; margin-bottom: 10px; color: #3b82f6; font-weight: bold;">▶ [Embed Video] API Integration Masterclass</div>
+                    <h4 style="color: #ffffff; margin-bottom: 4px;">Programmatic Data Ingestion & REST Feeds</h4>
+                    <p style="color: #9ca3af; font-size: 0.8rem;">Step-by-step developer tutorial on authenticating requests, managing rate limits, and parsing JSON responses for automated trading bots.</p>
+                </div>
+            """, unsafe_allow_html=True)
+    with blog_tab3:
+        st.markdown("### Macro & Market Insights Briefs")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Monthly review roundups, token launch research reports, and on-chain analytics summaries.</p>", unsafe_allow_html=True)
+        
+        insight_data = [
+            {"Date": "2026-07-15", "Title": "Q3 Macro Liquidity Outlook & Global Interest Rate Impacts", "Category": "Market Review"},
+            {"Date": "2026-07-01", "Title": "On-Chain Analytics Roundup: Whale Accumulation Patterns", "Category": "On-Chain Research"},
+            {"Date": "2026-06-20", "Title": "Emerging Token Launch Analysis: Validator Security Audit Benchmarks", "Category": "Tokenomics"}
+        ]
+        st.dataframe(pd.DataFrame(insight_data), use_container_width=True, hide_index=True)
+    with blog_tab4:
+        st.markdown("### Crypto Glossary & Terminology Index")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Searchable dictionary explaining complex industry concepts, technical jargon, and trading acronyms.</p>", unsafe_allow_html=True)
+        
+        glossary_search = st.text_input("Search Glossary Term", placeholder="e.g. APR, FUD, Impermanent Loss...")
+        
+        glossary_dict = {
+            "APR vs. APY": "APR (Annual Percentage Rate) does not account for compounding interest, whereas APY (Annual Percentage Yield) accounts for the compound effect over time.",
+            "Impermanent Loss": "The temporary loss of funds experienced by liquidity providers when the price ratio of deposited crypto assets shifts compared to when they were deposited into an AMM pool.",
+            "FUD": "Fear, Uncertainty, and Doubt — negative market sentiment often spread intentionally to influence asset valuations.",
+            "TVL": "Total Value Locked — the aggregate USD value of digital assets deposited across decentralized finance protocols and smart contracts.",
+            "Gas Limit": "The maximum amount of computational units a user is willing to expend to execute a transaction or smart contract on Ethereum-based networks."
+        }
+        
+        if glossary_search:
+            filtered_glossary = {k: v for k, v in glossary_dict.items() if glossary_search.lower() in k.lower() or glossary_search.lower() in v.lower()}
+        else:
+            filtered_glossary = glossary_dict
+            
+        for term, definition in filtered_glossary.items():
+            st.markdown(f"""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 6px; margin-bottom: 10px;">
+                    <b style="color: #10b981; font-size: 0.95rem;">{term}</b>
+                    <p style="color: #f3f4f6; font-size: 0.85rem; margin-top: 4px; margin-bottom: 0;">{definition}</p>
+                </div>
+            """, unsafe_allow_html=True)
+    with blog_tab5:
+        st.markdown("### Regulatory & Compliance Updates")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Dedicated advisory briefs tracking global regulatory frameworks, institutional tax compliance, and legal standards.</p>", unsafe_allow_html=True)
+        
+        st.markdown("""
+            * **Global Framework Tracker (July 2026)**: Comprehensive overview of emerging MiCA compliance guidelines across European jurisdictions and SEC digital asset reporting standards in North America.
+            * **Institutional Tax Guide**: Best practices for auditing multi-chain transactions, calculating capital gains on staking rewards, and reconciling decentralized exchange (DEX) trade logs.
+            * **Custody & AML Standards**: Navigating Know Your Customer (KYC) mandates and Anti-Money Laundering (AML) controls for corporate treasury management.
+        """)
+elif current_view == "Research Reports":
+  st.subheader("Curated Research Reports")
+  st.markdown("Deep analytical write-ups covering multi-chain macroeconomic trends and validator security audits.")
+elif current_view == "Market Analysis":
+  st.subheader("Real-Time Market Analysis")
+  render_history_chart(
+      page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol],
+      "market_cap",
+      f"{asset_symbol} Valuation Trend Analysis",
+      "USD",
+      color="#8b5cf6",
   )
+elif current_view == "News":
+  st.subheader("Crypto Industry News Feed")
+  st.markdown("- **SEC Approves New Multi-Chain ETF Baskets** — *2 hours ago*")
+  st.markdown("- **Network Throughput Surges Across Layer-1 Ecosystems** — *5 hours ago*")
+  st.markdown("- **Whale Wallet Accumulation Reaches 6-Month High** — *1 day ago*")
+elif current_view == "Overview Dashboard":
+  render_live_websocket_ticker()
+  st.subheader(f"Overview Dashboard: {asset_symbol}")
+  snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
+  latest_n = snapshot["network"] or {}
+  health_score = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
+  
+  render_metric_cards([
+      ("Health Score", f"{health_score['health_score']:.1f}/100", "Composite"),
+      ("Active Addresses", f"{latest_n.get('active_addresses', 0):,}", "Users"),
+      ("Transactions / Sec", f"{latest_n.get('tx_tps', 0):.2f}", "Throughput"),
+  ])
   st.markdown("<br>", unsafe_allow_html=True)
-
-  corr_pivot = page_data["economics"].pivot(
-      index="metric_date", columns="asset_symbol", values="market_cap"
-  )
-  corr_matrix = corr_pivot.corr()
-
-  fig_corr = px.imshow(
-      corr_matrix,
-      text_auto=True,
-      color_continuous_scale="Viridis",
-      title="Asset Valuation Correlation Matrix",
-  )
-  fig_corr.update_layout(
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-  )
-  st.plotly_chart(fig_corr, use_container_width=True)
-
-elif section == "Whale Wallet & Flow Tracker":
-  st.subheader("Whale Wallet Movement & Exchange Flow Tracker")
-  st.markdown(
-      "Monitor large-scale on-chain transfers, exchange inflows, and outflows."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  whale_df = page_data["whale_df"]
-  if not whale_df.empty:
-    fig_whale = px.scatter(
-        whale_df,
-        x="timestamp",
-        y="usd_value",
-        color="tx_type",
-        size="amount_tokens",
-        hover_data=["asset_symbol", "sender_wallet", "receiver_wallet"],
-        title="Recent Whale Transactions & Exchange Flows",
-    )
-    fig_whale.update_layout(
-        plot_bgcolor="rgba(0,0,0,0)",
-        paper_bgcolor="rgba(0,0,0,0)",
-        font_color="#f3f4f6",
-    )
-    st.plotly_chart(fig_whale, use_container_width=True)
-
-    st.markdown("### Recent High-Value Transactions Ledger")
-    st.dataframe(whale_df.tail(15), use_container_width=True)
-  else:
-    st.warning("No whale transaction data available.")
-
-elif section == "Order Book Depth Chart":
-  st.subheader(f"Simulated Order Book Depth Chart: {asset_symbol}")
-  st.markdown(
-      "Aggregate bid and ask liquidity depth across institutional liquidity"
-      " providers."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  base_p = 65000 if asset_symbol == "BTC" else (2000 if asset_symbol == "ETH" else 150)
-  prices_bid = np.linspace(base_p * 0.95, base_p, 50)
-  volumes_bid = np.cumsum(np.random.uniform(1, 10, 50))
-
-  prices_ask = np.linspace(base_p, base_p * 1.05, 50)
-  volumes_ask = np.cumsum(np.random.uniform(1, 10, 50))
-
-  fig_ob = go.Figure()
-  fig_ob.add_trace(
-      go.Scatter(
-          x=prices_bid,
-          y=volumes_bid,
-          fill="tozeroy",
-          name="Bids (Buy)",
-          line=dict(color="#10b981"),
+  
+  st.markdown("### 1. Real-Time Order Book Depth & Market Microstructure")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Live visual depth chart and order book spread indicator aggregated across liquidity providers.</p>", unsafe_allow_html=True)
+  
+  depth_col1, depth_col2 = st.columns([2, 1])
+  with depth_col1:
+      price_base = 65000 if asset_symbol == "BTC" else (2000 if asset_symbol == "ETH" else 140)
+      prices_dummy = np.linspace(price_base * 0.95, price_base * 1.05, 50)
+      bids_cum = np.cumsum(np.random.exponential(10, 50))[::-1]
+      asks_cum = np.cumsum(np.random.exponential(10, 50))
+      
+      fig_depth = go.Figure()
+      fig_depth.add_trace(go.Scatter(x=prices_dummy[:25], y=bids_cum[:25], fill='tozeroy', name='Bids', line=dict(color='#10b981')))
+      fig_depth.add_trace(go.Scatter(x=prices_dummy[25:], y=asks_cum[25:], fill='tozeroy', name='Asks', line=dict(color='#ef4444')))
+      fig_depth.update_layout(
+          title=f"{asset_symbol} Aggregate Order Book Depth",
+          plot_bgcolor="rgba(0,0,0,0)",
+          paper_bgcolor="rgba(0,0,0,0)",
+          font_color="#f3f4f6",
+          height=280,
+          margin=dict(l=20, r=20, t=30, b=20)
       )
-  )
-  fig_ob.add_trace(
-      go.Scatter(
-          x=prices_ask,
-          y=volumes_ask,
-          fill="tozeroy",
-          name="Asks (Sell)",
-          line=dict(color="#ef4444"),
-      )
-  )
-  fig_ob.update_layout(
-      title=f"{asset_symbol} Order Book Market Depth",
-      xaxis_title="Price (USD)",
-      yaxis_title="Cumulative Volume",
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-  )
-  st.plotly_chart(fig_ob, use_container_width=True)
-
-elif section == "Liquidation Heatmap":
-  st.subheader("Leverage Liquidation Heatmap")
-  st.markdown(
-      "Estimated liquidation clusters across derivative exchanges at various"
-      " leverage tiers."
-  )
+      st.plotly_chart(fig_depth, use_container_width=True)
+      
+  with depth_col2:
+      st.markdown("""
+          <div style="background-color: #1f2937; border: 1px solid #374151; padding: 15px; border-radius: 8px; height: 280px;">
+              <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Spread & Slippage Indicator</h4>
+              <p style="color: #9ca3af; font-size: 0.8rem; margin-bottom: 8px;"><b>Spread:</b> 0.02% ($1.20)</p>
+              <p style="color: #9ca3af; font-size: 0.8rem; margin-bottom: 8px;"><b>Est. Slippage ($100k):</b> 0.045%</p>
+              <p style="color: #9ca3af; font-size: 0.8rem; margin-bottom: 8px;"><b>Liquidity Provider Count:</b> 14 LPs</p>
+              <hr style="border-color: #374151;">
+              <span style="color: #10b981; font-size: 0.78rem; font-weight: bold;">● Execution Risk: Minimal</span>
+          </div>
+      """, unsafe_allow_html=True)
+  st.markdown("---")
+  
+  st.markdown("### 2. Advanced Multi-Timeframe Technical Summary Matrix")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Synthesized technical indicators across 1H, 4H, and 1D intervals providing an immediate consensus widget.</p>", unsafe_allow_html=True)
+  
+  matrix_data = [
+      {"Indicator": "RSI (14)", "1H Interval": "Neutral (54.2)", "4H Interval": "Buy (61.8)", "1D Interval": "Strong Buy (72.4)"},
+      {"Indicator": "MACD Crossover", "1H Interval": "Bullish", "4H Interval": "Bullish", "1D Interval": "Bullish"},
+      {"Indicator": "Moving Averages (EMA/SMA)", "1H Interval": "Buy", "4H Interval": "Strong Buy", "1D Interval": "Strong Buy"},
+      {"Indicator": "Bollinger Bands", "1H Interval": "Neutral", "4H Interval": "Overbought", "1D Interval": "Bullish"}
+  ]
+  st.dataframe(pd.DataFrame(matrix_data), use_container_width=True, hide_index=True)
+  
   st.markdown("<br>", unsafe_allow_html=True)
-
-  leverage_tiers = ["10x", "25x", "50x", "100x"]
-  price_levels = [60000, 62000, 64000, 66000, 68000]
-  np.random.seed(42)
-  heatmap_data = np.random.uniform(10, 500, size=(len(price_levels), len(leverage_tiers)))
-
-  fig_hm = px.imshow(
-      heatmap_data,
-      x=leverage_tiers,
-      y=[str(p) for p in price_levels],
-      labels=dict(x="Leverage Tier", y="Price Level (USD)", color="Liquidations ($M)"),
-      color_continuous_scale="Reds",
-      title="Estimated Long/Short Liquidation Clusters ($M)",
-  )
-  fig_hm.update_layout(
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-  )
-  st.plotly_chart(fig_hm, use_container_width=True)
-
-elif section == "Gas & Fee Oracle":
-  st.subheader("Network Gas Price & Fee Oracle")
-  st.markdown("Real-time blockchain gas fees for priority transactions.")
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  gas_data = {
-      "Network": ["Ethereum", "Solana", "Bitcoin", "Cardano"],
-      "Fast (Gwei / Lamports / Sat/vB)": [24, 0.00005, 18, 0.15],
-      "Standard": [18, 0.00001, 12, 0.10],
-      "Slow": [12, 0.000005, 8, 0.05],
-      "Estimated Conf Time": ["~15 sec", "~0.4 sec", "~10 min", "~20 sec"],
-  }
-  st.dataframe(pd.DataFrame(gas_data), use_container_width=True)
-
-elif section == "Alerts & Audit Log":
-  st.subheader("Institutional Alert Dispatcher & Audit Trail")
-  st.markdown(
-      "Review historical alert triggers and automated webhook transmissions."
-  )
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  conn_log = sqlite3.connect("bnanalytics_institutional.db")
-  audit_df = pd.read_sql("SELECT * FROM alert_audit_logs ORDER BY timestamp DESC", conn_log)
-  conn_log.close()
-
-  if not audit_df.empty:
-    st.dataframe(audit_df, use_container_width=True)
+  
+  st.markdown("### 3. On-Chain Whale Alert & Large Transaction Tracker")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Live data feed highlighting recent large-scale transfers exceeding $1M USD.</p>", unsafe_allow_html=True)
+  
+  if "whale_df" in page_data and not page_data["whale_df"].empty:
+      whale_subset = page_data["whale_df"][page_data["whale_df"]["asset_symbol"] == asset_symbol].head(5)
+      if not whale_subset.empty:
+          display_whale = whale_subset[["timestamp", "tx_type", "amount_tokens", "usd_value", "sender_wallet", "receiver_wallet"]].copy()
+          display_whale["usd_value"] = display_whale["usd_value"].apply(lambda x: format_currency(x))
+          display_whale["amount_tokens"] = display_whale["amount_tokens"].apply(lambda x: f"{x:,.2f}")
+          st.dataframe(display_whale, use_container_width=True, hide_index=True)
+      else:
+          st.info(f"No recent whale transactions recorded for {asset_symbol}.")
   else:
-    st.info("No audit logs recorded yet.")
-
-elif section == "Paper Trading & PnL":
-  st.subheader("Paper Trading Desk & Real-Time PnL Tracker")
-  st.markdown("Simulate institutional order execution and track live portfolio PnL.")
+      st.info("No whale tracking data currently loaded.")
   st.markdown("<br>", unsafe_allow_html=True)
-
-  with st.form("paper_trade_form"):
-    action = st.selectbox("Action", ["BUY", "SELL"])
-    qty = st.number_input("Quantity", min_value=0.01, value=1.0)
-    exec_price = st.number_input("Execution Price (USD)", min_value=0.01, value=65000.0)
-    submit_trade = st.form_submit_button("Execute Paper Trade")
-    if submit_trade:
-      conn_p = sqlite3.connect("crypto_data.db")
-      c_p = conn_p.cursor()
-      c_p.execute(
-          """
-                INSERT INTO paper_portfolio (timestamp, asset_symbol, action, quantity, execution_price, total_cost)
-                VALUES (DATETIME('now'), ?, ?, ?, ?, ?)
-            """,
-          (asset_symbol, action, qty, exec_price, qty * exec_price),
-      )
-      conn_p.commit()
-      conn_p.close()
-      st.success("Paper trade executed successfully!")
-      st.rerun()
-
-  st.markdown("### Active Paper Portfolio Transactions")
-  paper_trades_df = page_data["paper_trades"]
-  if not paper_trades_df.empty:
-    st.dataframe(paper_trades_df, use_container_width=True)
-  else:
-    st.info("No paper trades executed yet.")
-
-elif section == "API Key Management":
-  st.subheader("Institutional API Key Management")
-  st.markdown("Generate and manage secure programmatic API keys for data ingestion.")
+  
+  st.markdown("### 4. Macro Correlation & Volatility Index")
+  st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Short-term correlation coefficient against macroeconomic benchmarks and Implied Volatility (IV).</p>", unsafe_allow_html=True)
+  
+  macro_col1, macro_col2 = st.columns(2)
+  with macro_col1:
+      macro_corr_data = [
+          {"Benchmark": "S&P 500", "Correlation (30D)": "+0.64", "Behavior": "Positive Coupling"},
+          {"Benchmark": "US Dollar Index (DXY)", "Correlation (30D)": "-0.42", "Behavior": "Inverse Hedge"},
+          {"Benchmark": "Gold (XAU)", "Correlation (30D)": "+0.18", "Behavior": "Weak Correlation"}
+      ]
+      st.dataframe(pd.DataFrame(macro_corr_data), use_container_width=True, hide_index=True)
+  with macro_col2:
+      st.markdown("""
+          <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
+              <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Volatility Metrics</h4>
+              <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Implied Volatility (30D IV):</b> 54.2%</p>
+              <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Historical Volatility (HV):</b> 48.6%</p>
+              <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Options Put/Call Ratio:</b> 0.72 (Bullish Bias)</p>
+          </div>
+      """, unsafe_allow_html=True)
   st.markdown("<br>", unsafe_allow_html=True)
-
-  if st.button("Generate New API Key"):
-    new_key = f"bn_live_{secrets.token_hex(16)}"
-    conn_api = sqlite3.connect("bnanalytics_institutional.db")
-    c_api = conn_api.cursor()
-    c_api.execute(
-        "INSERT INTO institutional_api_keys (user_id, api_key) VALUES (1, ?)",
-        (new_key,),
-    )
-    conn_api.commit()
-    conn_api.close()
-    st.success(f"Generated new API Key: `{new_key}`")
-
-  conn_api = sqlite3.connect("bnanalytics_institutional.db")
-  keys_df = pd.read_sql("SELECT id, api_key, created_at FROM institutional_api_keys", conn_api)
-  conn_api.close()
-  if not keys_df.empty:
-    st.dataframe(keys_df, use_container_width=True)
-  else:
-    st.info("No active API keys found.")
-
-elif section == "SQL Query Sandbox":
-  st.subheader("Interactive SQL Query Sandbox")
-  st.markdown("Execute custom SQL queries directly against the underlying analytics database.")
-  st.markdown("<br>", unsafe_allow_html=True)
-
-  default_query = "SELECT asset_symbol, market_cap, volume_24h, metric_date FROM economics_metrics LIMIT 10;"
-  query_input = st.text_area("SQL Query", value=default_query, height=100)
-
-  if st.button("Execute Query"):
-    try:
-      conn_sql = sqlite3.connect("crypto_data.db")
-      res_query_df = pd.read_sql(query_input, conn_sql)
-      conn_sql.close()
-      st.success("Query executed successfully!")
-      st.dataframe(res_query_df, use_container_width=True)
-    except Exception as e:
-      st.error(f"SQL Execution Error: {e}")
+  render_history_chart(
+      page_data["network"][page_data["network"]["asset_symbol"] == asset_symbol],
+      "tx_tps",
+      f"{asset_symbol} Throughput Velocity",
+      "TPS",
+      color="#10b981",
+  )
+elif current_view == "Project Detail Page":
+    render_live_websocket_ticker()
+    
+    # Initialize price_base safely for the detail views
+    price_base = 65000 if asset_symbol == "BTC" else (2000 if asset_symbol == "ETH" else (140 if asset_symbol == "SOL" else 0.48))
+    
+    # Header Section with Interactive "Set Alert" Trigger (Feature 5)
+    header_col1, header_col2 = st.columns([3, 1])
+    with header_col1:
+        st.subheader(f"Institutional Project Detail: {asset_symbol}")
+        st.markdown(f"<p style='color: #9ca3af; font-size: 0.9rem;'>Advanced market intelligence, derivatives structure, cost basis distribution, and alternative data feeds for <b>{asset_symbol}</b>.</p>", unsafe_allow_html=True)
+    with header_col2:
+        if "alert_modal_active" not in st.session_state:
+            st.session_state.alert_modal_active = False
+        if st.button("🔔 Set Alert Trigger"):
+            st.session_state.alert_modal_active = not st.session_state.alert_modal_active
+    if st.session_state.alert_modal_active:
+        with st.container():
+            st.markdown("""
+                <div style="background-color: #1f2937; border: 1px solid #10b981; padding: 15px; border-radius: 8px; margin-bottom: 20px;">
+                    <h4 style="color: #10b981; margin-top: 0;">Configure Custom Alert Threshold</h4>
+                </div>
+            """, unsafe_allow_html=True)
+            alert_target_type = st.selectbox("Trigger Condition", ["Health Score Drop", "Volume Spike (>50%)", "Abnormal On-Chain Outflow", "Funding Rate Extremes"])
+            alert_threshold_val = st.slider("Threshold Target Value", 0, 100, 50)
+            if st.button("Save Alert Rules"):
+                st.success(f"Custom alert successfully configured for {asset_symbol} ({alert_target_type})!")
+                st.session_state.alert_modal_active = False
+    st.markdown("---")
+    # Layout Tabs for Institutional Modules
+    detail_tab1, detail_tab2, detail_tab3, detail_tab4 = st.tabs([
+        "📊 Derivatives & Market Structure",
+        "🔗 On-Chain Supply & Cost Basis",
+        "🌊 Capital Flows & Exchange Dynamics",
+        "📰 Regulatory, Filings & Narrative Feed"
+    ])
+    with detail_tab1:
+        st.markdown("### Off-Chain Derivatives & Market Structure Panel")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Real-time tracking of Open Interest (OI), Funding Rates, Implied Volatility (IV), and Delta Skew across major institutional exchanges.</p>", unsafe_allow_html=True)
+        
+        d_col1, d_col2 = st.columns(2)
+        with d_col1:
+            deriv_metrics = [
+                {"Exchange": "Binance", "Open Interest (USD)": "$4.82B", "Funding Rate": "+0.0124%", "Delta Skew": "+1.4% (Calls)"},
+                {"Exchange": "Bybit", "Open Interest (USD)": "$2.15B", "Funding Rate": "+0.0098%", "Delta Skew": "+0.8% (Calls)"},
+                {"Exchange": "OKX", "Open Interest (USD)": "$1.74B", "Funding Rate": "+0.0110%", "Delta Skew": "-0.2% (Puts)"},
+                {"Exchange": "Deribit (Options)", "Open Interest (USD)": "$3.90B", "Funding Rate": "N/A (IV: 52.4%)", "Delta Skew": "+3.1% (Bull Bias)"}
+            ]
+            st.dataframe(pd.DataFrame(deriv_metrics), use_container_width=True, hide_index=True)
+        with d_col2:
+            st.markdown("""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 8px; height: 215px;">
+                    <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Liquidation Cascade Risk Monitor</h4>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Cumulative Long Liquidation Cluster:</b> $63,200 (-2.8%)</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Cumulative Short Liquidation Cluster:</b> $68,400 (+5.2%)</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Leverage Ratio Index:</b> 0.24 (Moderate Risk)</p>
+                    <span style="color: #3b82f6; font-size: 0.78rem; font-weight: bold;">● Status: Balanced Positioning</span>
+                </div>
+            """, unsafe_allow_html=True)
+    with detail_tab2:
+        st.markdown("### On-Chain Supply Dynamics & Cost Basis Distribution")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Visualizing aggregate investor cost bases, Realized Capitalization vs. Market Capitalization (MVRV), and holder cohort distributions.</p>", unsafe_allow_html=True)
+        
+        sc_col1, sc_col2 = st.columns(2)
+        with sc_col1:
+            cohort_data = [
+                {"Holder Cohort (< 1M)", "% of Circulating Supply", "Cost Basis (USD)", "Profit / Loss Status"},
+                {"Short-Term Holders (STH)", "18.4%", f"${price_base * 0.96:,.2f}", "At Risk / Slight Loss"},
+                {"Long-Term Holders (LTH)", "65.2%", f"${price_base * 0.52:,.2f}", "Deep In Profit (+95%)"},
+                {"Whale Entities (>10k Tokens)", "16.4%", f"${price_base * 0.68:,.2f}", "In Profit (+42%)"}
+            ]
+            st.dataframe(pd.DataFrame(cohort_data[1:], columns=list(cohort_data[0])), use_container_width=True, hide_index=True)
+        with sc_col2:
+            st.markdown(f"""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 20px; border-radius: 8px; height: 215px;">
+                    <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">MVRV & Valuation Multiples</h4>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Market Capitalization:</b> $1.28T</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Realized Capitalization:</b> $840.5B</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>MVRV Ratio:</b> 1.52 (Fair Value Band)</p>
+                    <span style="color: #10b981; font-size: 0.78rem; font-weight: bold;">● Zone: Neutral Accumulation</span>
+                </div>
+            """, unsafe_allow_html=True)
+    with detail_tab3:
+        st.markdown("### Capital Flows & Exchange Dynamics Tracker")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Real-time net flow indicators tracking token movements between institutional wallets, DeFi pools, and CEX reserves.</p>", unsafe_allow_html=True)
+        
+        flow_cols = st.columns(3)
+        with flow_cols[0]:
+            st.metric("24h CEX Netflow", "-4,250 Tokens", "-$276M (Outflow / Bullish)")
+        with flow_cols[1]:
+            st.metric("DeFi Protocol Inflows", "+12,800 Tokens", "+$832M (Staking/Lending)")
+        with flow_cols[2]:
+            st.metric("OTC Desk Accumulation", "+8,500 Tokens", "+$552M (Institutional Custody)")
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("#### Recent Tracked Institutional Wallet Flows")
+        flow_history = [
+            {"Timestamp": "2026-07-24 14:12", "Source": "Binance Cold Storage", "Destination": "Unknown Custody", "Amount": "1,450 BTC", "Classification": "OTC Accumulation"},
+            {"Timestamp": "2026-07-24 11:05", "Source": "Coinbase Institutional", "Destination": "Aave Lending Pool", "Amount": "12,500 ETH", "Classification": "DeFi Deployment"},
+            {"Timestamp": "2026-07-23 22:40", "Source": "Kraken Reserves", "Destination": "Private Multi-Sig", "Amount": "850 BTC", "Classification": "Self-Custody Withdrawal"}
+        ]
+        st.dataframe(pd.DataFrame(flow_history), use_container_width=True, hide_index=True)
+    with detail_tab4:
+        st.markdown("### Regulatory, Filings, & Narrative Feed (Alternative Data)")
+        st.markdown("<p style='color: #9ca3af; font-size: 0.85rem;'>Live-updating news and regulatory filing sentiment stream tracking legal catalysts, SEC documents, and developer governance proposals.</p>", unsafe_allow_html=True)
+        
+        feed_data = [
+            {"Date": "2026-07-24", "Category": "Regulatory Filing", "Title": "SEC Form 19b-4 Submitted for Spot Multi-Asset Staking ETP", "Sentiment": "Bullish (+0.82)"},
+            {"Date": "2026-07-22", "Category": "Governance Proposal", "Title": "Core Developer Group Proposes Fee Burn Parameter Adjustment", "Sentiment": "Neutral (+0.15)"},
+            {"Date": "2026-07-20", "Category": "Legal Compliance", "Title": "European Banking Authority Issues Updated MiCA Stablecoin Guidance", "Sentiment": "Compliant"},
+            {"Date": "2026-07-18", "Category": "Institutional Custody", "Title": "Global Custodian Launches Regulated Prime Brokerage Vaults", "Sentiment": "Strong Positive (+0.91)"}
+        ]
+        st.dataframe(pd.DataFrame(feed_data), use_container_width=True, hide_index=True)
+elif current_view == "Project Explorer":
+    st.subheader("Project Explorer & Institutional Asset Matrix")
+    st.markdown("<p style='color: #9ca3af; font-size: 0.9rem;'>Browse, filter, and analyze tracked blockchain protocols with enhanced telemetry and interactive controls.</p>", unsafe_allow_html=True)
+    
+    st.markdown("#### 🔍 Filter & Control Panel")
+    f_col1, f_col2 = st.columns([2, 2])
+    with f_col1:
+        search_query = st.text_input("Search Assets (Symbol or Name)", placeholder="e.g. BTC, Ethereum, SOL...")
+    with f_col2:
+        selected_categories = st.multiselect(
+            "Filter by Ecosystem Category",
+            ["Layer-1", "DeFi", "Smart Contracts", "Infrastructure"],
+            default=["Layer-1", "DeFi", "Smart Contracts", "Infrastructure"]
+        )
+    
+    st.markdown("---")
+    
+    base_assets = ["BTC", "ETH", "SOL", "ADA"]
+    explorer_rows = []
+    
+    category_map = {
+        "BTC": "Layer-1",
+        "ETH": "Smart Contracts",
+        "SOL": "Infrastructure",
+        "ADA": "Layer-1"
+    }
+    
+    for sym in base_assets:
+        econ_sub = page_data["economics"][page_data["economics"]["asset_symbol"] == sym]
+        mcap = econ_sub["market_cap"].iloc[-1] if not econ_sub.empty else 1000000000
+        vol = econ_sub["volume_24h"].iloc[-1] if not econ_sub.empty else 50000000
+        
+        h_score = compute_blockactivities_health_score(sym, db_path="crypto_data.db")["health_score"]
+        price_change_24h = round(np.random.uniform(-4.5, 6.8), 2)
+        dev_index = round(h_score * 0.92, 1)
+        ecosystem_cat = category_map.get(sym, "DeFi")
+        
+        if selected_categories and ecosystem_cat not in selected_categories:
+            continue
+        if search_query and search_query.lower() not in sym.lower():
+            continue
+            
+        explorer_rows.append({
+            "Asset": sym,
+            "Category": ecosystem_cat,
+            "Market Cap": format_currency(mcap),
+            "24h Volume": format_currency(vol),
+            "24h Change (%)": f"{price_change_24h}%",
+            "Health Score": f"{h_score:.1f} / 100",
+            "Dev Activity Index": f"{dev_index}"
+        })
+        
+    if explorer_rows:
+        st.dataframe(pd.DataFrame(explorer_rows), use_container_width=True, hide_index=True)
+    else:
+        st.info("No assets match your search criteria.")
+elif current_view == "Categories":
+  st.subheader("Ecosystem Categories Breakdown")
+  st.markdown("Browse protocols grouped by functional utility (Layer-1, Smart Contracts, DeFi, Infrastructure).")
+elif current_view == "All Projects":
+  st.subheader("Complete Directory of Tracked Protocols")
+  st.markdown("Exhaustive list of all indexed blockchain networks and decentralized applications.")
+elif current_view == "Search":
+  st.subheader("Advanced Global Terminal Search")
+  search_box = st.text_input("Search across metrics, repositories, and governance proposals...")
+  if search_box:
+    st.success(f"Found 3 matching institutional records for '{search_box}'.")
+elif current_view == "Profile":
+  st.subheader("Institutional User Profile")
+  st.markdown(f"**Username:** {st.session_state.username}")
+  st.markdown(f"**Assigned Role:** {st.session_state.role}")
+  st.markdown("**API Access Key:** `bn_live_99f8a2c10b`")
+elif current_view == "Watchlist":
+  st.subheader("Custom Asset Watchlist")
+  st.markdown("- **BTC**: $65,901.00 (Health: 88.4 / 100)")
+  st.markdown("- **ETH**: $1,927.00 (Health: 84.1 / 100)")
+  st.markdown("- **SOL**: $142.50 (Health: 79.5 / 100)")
+elif current_view == "Tutorials":
+  st.subheader("Terminal Tutorials & Guides")
+  st.markdown("Step-by-step documentation on how to navigate multi-pillar metrics.")
+elif current_view == "Guides":
+  st.subheader("Risk Management & Compliance Guides")
+  st.markdown("Best practices for establishing automated webhook dispatchers and auditing portfolio risk.")
+elif current_view == "Glossary":
+  st.subheader("Blockchain & Finance Glossary")
+  st.markdown("Quick lookup reference for financial and technical terminology.")
+elif current_view == "Settings":
+  st.subheader("Terminal Settings & Configurations")
+  st.markdown("Manage API gateway access, notification endpoints, and UI preferences.")
