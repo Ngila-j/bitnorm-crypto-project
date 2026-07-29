@@ -40,7 +40,8 @@ def generate_simulated_trades(num_records=5000, db_path="crypto_data.db"):
 
     assets = ["BTC", "ETH", "SOL", "ADA"]
     order_types = ["Buy", "Sell"]
-    base_prices = {"BTC": 65000.0, "ETH": 35000.0, "SOL": 180.0, "ADA": 0.45}
+    # Realistic approximate base prices (USD)
+    base_prices = {"BTC": 65000.0, "ETH": 3200.0, "SOL": 145.0, "ADA": 0.48}
 
     start_time = datetime.now() - timedelta(days=30)
     trades_data = []
