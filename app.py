@@ -249,9 +249,15 @@ def init_rbac_db():
             asset_symbol TEXT,
             health_score REAL,
             threshold REAL,
-            status TEXT
+            status TEXT,
+            webhook_status TEXT DEFAULT 'Not Sent'
         )
     """)
+  # Migration safety for older DBs that lack webhook_status
+  try:
+      cursor.execute("ALTER TABLE alert_audit_logs ADD COLUMN webhook_status TEXT DEFAULT 'Not Sent'")
+  except Exception:
+      pass
   cursor.execute("SELECT COUNT(*) FROM institutional_users")
   if cursor.fetchone()[0] == 0:
     default_pass = hashlib.sha256("AdminSecure2026!".encode()).hexdigest()
@@ -535,6 +541,38 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
   buffer.seek(0)
   return buffer
 
+def log_alert_event(asset_symbol, health_score, threshold, status, webhook_status="Not Sent"):
+    """Centralized audit logger for health-score alerts."""
+    try:
+        conn = sqlite3.connect("bnanalytics_institutional.db")
+        c = conn.cursor()
+        c.execute(
+            """INSERT INTO alert_audit_logs 
+               (asset_symbol, health_score, threshold, status, webhook_status) 
+               VALUES (?, ?, ?, ?, ?)""",
+            (asset_symbol, health_score, threshold, status, webhook_status),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
+
+def get_alert_history(limit=50):
+    """Fetch recent alert audit logs."""
+    try:
+        conn = sqlite3.connect("bnanalytics_institutional.db")
+        df = pd.read_sql(
+            f"""SELECT log_id, timestamp, asset_symbol, health_score, threshold, status, 
+                       COALESCE(webhook_status, 'Not Sent') as webhook_status
+                FROM alert_audit_logs 
+                ORDER BY log_id DESC LIMIT {limit}""",
+            conn,
+        )
+        conn.close()
+        return df
+    except Exception:
+        return pd.DataFrame()
+
 page_data = load_dashboard_data()
 
 
@@ -693,32 +731,55 @@ current_check_score = compute_blockactivities_health_score(
     asset_symbol, db_path="crypto_data.db"
 )["health_score"]
 
+# --- HARDENED ALERT LOGIC ---
 if current_check_score < alert_health_min:
-  conn_log = sqlite3.connect("bnanalytics_institutional.db")
-  c_log = conn_log.cursor()
-  c_log.execute(
-      "INSERT INTO alert_audit_logs (asset_symbol, health_score, threshold, status) VALUES (?, ?, ?, ?)",
-      (asset_symbol, current_check_score, alert_health_min, "Triggered - Warning"),
+  webhook_status = "Not Sent"
+  if webhook_url_input:
+      try:
+          payload = {
+              "text": (
+                  f"BNAnalytics Automatic Dispatch: {asset_symbol} Health Score"
+                  f" dropped to {current_check_score:.1f} (Threshold:"
+                  f" {alert_health_min})!"
+              )
+          }
+          res = requests.post(webhook_url_input, json=payload, timeout=4)
+          if res.status_code in [200, 201]:
+              webhook_status = "Delivered"
+          else:
+              webhook_status = f"Failed ({res.status_code})"
+      except Exception as e:
+          webhook_status = f"Error: {str(e)[:40]}"
+  log_alert_event(
+      asset_symbol,
+      current_check_score,
+      alert_health_min,
+      "Triggered - Warning",
+      webhook_status,
   )
-  conn_log.commit()
-  conn_log.close()
+  st.sidebar.warning(f"{asset_symbol} below threshold ({current_check_score:.1f})")
+else:
+  # Optional: log healthy status occasionally for audit completeness (commented to avoid noise)
+  pass
 
 if current_check_score < alert_health_min and webhook_url_input:
   if st.sidebar.button("Broadcast Webhook Alert Now"):
     try:
       payload = {
           "text": (
-              f"BNAnalytics Automatic Dispatch: {asset_symbol} Health Score"
-              f" dropped to {current_check_score:.1f} (Threshold:"
-              f" {alert_health_min})!"
+              f"BNAnalytics Manual Dispatch: {asset_symbol} Health Score"
+              f" is {current_check_score:.1f} (Threshold: {alert_health_min})!"
           )
       }
       res = requests.post(webhook_url_input, json=payload, timeout=4)
       if res.status_code in [200, 201]:
-        st.sidebar.success("Automated webhook alert dispatched successfully!")
+        log_alert_event(asset_symbol, current_check_score, alert_health_min, "Manual Broadcast", "Delivered")
+        st.sidebar.success("Webhook alert dispatched & logged!")
       else:
+        log_alert_event(asset_symbol, current_check_score, alert_health_min, "Manual Broadcast", f"Failed ({res.status_code})")
         st.sidebar.warning(f"Webhook response status {res.status_code}")
     except Exception as e:
+      log_alert_event(asset_symbol, current_check_score, alert_health_min, "Manual Broadcast", f"Error: {str(e)[:30]}")
       st.sidebar.error(f"Connection failed: {e}")
 
 st.sidebar.markdown("---")
@@ -875,22 +936,13 @@ if current_view == "Home":
   lb_df = pd.DataFrame(leaderboard_data).sort_values(by="Health", ascending=False)
   st.dataframe(lb_df, use_container_width=True, hide_index=True)
 
-  # Alert audit summary
+  # Alert audit summary (hardened)
   st.markdown("### Recent Alert Activity")
-  try:
-      conn_alerts = sqlite3.connect("bnanalytics_institutional.db")
-      alert_df = pd.read_sql(
-          "SELECT timestamp, asset_symbol, health_score, threshold, status "
-          "FROM alert_audit_logs ORDER BY log_id DESC LIMIT 8",
-          conn_alerts,
-      )
-      conn_alerts.close()
-      if not alert_df.empty:
-          st.dataframe(alert_df, use_container_width=True, hide_index=True)
-      else:
-          st.caption("No alert events logged yet. Alerts appear when health falls below your sidebar threshold.")
-  except Exception:
-      st.caption("Alert log unavailable.")
+  alert_df = get_alert_history(limit=10)
+  if not alert_df.empty:
+      st.dataframe(alert_df, use_container_width=True, hide_index=True)
+  else:
+      st.caption("No alert events logged yet. Alerts appear when health falls below your sidebar threshold.")
 
 elif current_view == "Features Overview":
     st.subheader("BNAnalytics Feature Suite")
@@ -1134,233 +1186,327 @@ elif current_view == "Blog / Resources":
     with blog_tab3:
         st.markdown("### Macro & Market Insights Briefs")
         st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Monthly review roundups, token launch research reports, and on-chain analytics summaries.</p>", unsafe_allow_html=True)
-        
-        insight_data = [
-            {"Date": "2026-07-15", "Title": "Q3 Macro Liquidity Outlook & Global Interest Rate Impacts", "Category": "Market Review"},
-            {"Date": "2026-07-01", "Title": "On-Chain Analytics Roundup: Whale Accumulation Patterns", "Category": "On-Chain Research"},
-            {"Date": "2026-06-20", "Title": "Emerging Token Launch Analysis: Validator Security Audit Benchmarks", "Category": "Tokenomics"}
-        ]
-        st.dataframe(pd.DataFrame(insight_data), use_container_width=True, hide_index=True)
+        st.info("Full research library available under **Insights → Research Reports**.")
     with blog_tab4:
-        st.markdown("### Crypto Glossary & Terminology Index")
-        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Searchable dictionary explaining complex industry concepts, technical jargon, and trading acronyms.</p>", unsafe_allow_html=True)
-        
-        glossary_search = st.text_input("Search Glossary Term", placeholder="e.g. APR, FUD, Impermanent Loss...")
-        
-        glossary_dict = {
-            "APR vs. APY": "APR (Annual Percentage Rate) does not account for compounding interest, whereas APY (Annual Percentage Yield) accounts for the compound effect over time.",
-            "Impermanent Loss": "The temporary loss of funds experienced by liquidity providers when the price ratio of deposited crypto assets shifts compared to when they were deposited into an AMM pool.",
-            "FUD": "Fear, Uncertainty, and Doubt — negative market sentiment often spread intentionally to influence asset valuations.",
-            "TVL": "Total Value Locked — the aggregate USD value of digital assets deposited across decentralized finance protocols and smart contracts.",
-            "Gas Limit": "The maximum amount of computational units a user is willing to expend to execute a transaction or smart contract on Ethereum-based networks."
-        }
-        
-        if glossary_search:
-            filtered_glossary = {k: v for k, v in glossary_dict.items() if glossary_search.lower() in k.lower() or glossary_search.lower() in v.lower()}
-        else:
-            filtered_glossary = glossary_dict
-            
-        for term, definition in filtered_glossary.items():
-            st.markdown(f"""
-                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 6px; margin-bottom: 10px;">
-                    <b style="color: #10b981; font-size: 0.95rem;">{term}</b>
-                    <p style="color: #f3f4f6; font-size: 0.85rem; margin-top: 4px; margin-bottom: 0;">{definition}</p>
-                </div>
-            """, unsafe_allow_html=True)
+        st.markdown("### Quick Glossary Redirect")
+        st.info("The complete institutional glossary lives under **Learn & Resources → Glossary**.")
     with blog_tab5:
-        st.markdown("### Regulatory & Compliance Updates")
-        st.markdown("<p style='color: #9ca3af; font-size: 0.88rem;'>Dedicated advisory briefs tracking global regulatory frameworks, institutional tax compliance, and legal standards.</p>", unsafe_allow_html=True)
-        
+        st.markdown("### Regulatory Snapshot")
         st.markdown("""
-            * **Global Framework Tracker (July 2026)**: Comprehensive overview of emerging MiCA compliance guidelines across European jurisdictions and SEC digital asset reporting standards in North America.
-            * **Institutional Tax Guide**: Best practices for auditing multi-chain transactions, calculating capital gains on staking rewards, and reconciling decentralized exchange (DEX) trade logs.
-            * **Custody & AML Standards**: Navigating Know Your Customer (KYC) mandates and Anti-Money Laundering (AML) controls for corporate treasury management.
+            - MiCA stablecoin guidance updates (EU)
+            - SEC multi-asset ETF filings monitoring
+            - Custody & prime-brokerage licensing trackers
         """)
 
+# ===================== INSIGHTS – RESEARCH REPORTS (PHASE 3 POLISH) =====================
 elif current_view == "Research Reports":
-  st.subheader("Curated Research Reports")
-  st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>"
-      "Institutional briefs aligned to multi-pillar telemetry and market structure."
-      "</p>",
-      unsafe_allow_html=True,
-  )
-  reports = [
-      {"Date": "2026-07-15", "Title": "Q3 Macro Liquidity Outlook & Rate Path", "Focus": "Economics / Macro", "Status": "Published"},
-      {"Date": "2026-07-01", "Title": "Whale Accumulation Patterns Across L1s", "Focus": "Network / On-Chain", "Status": "Published"},
-      {"Date": "2026-06-20", "Title": "Validator Security & Code Velocity Benchmarks", "Focus": "Source Code", "Status": "Published"},
-      {"Date": "2026-06-05", "Title": "Accessibility Index: Exchange & Wallet Coverage", "Focus": "Accessibility", "Status": "Draft"},
-  ]
-  st.dataframe(pd.DataFrame(reports), use_container_width=True, hide_index=True)
-  st.info("Full report PDFs can be wired to the same export pipeline used for executive asset reports.")
+    st.subheader("Institutional Research Reports")
+    st.markdown(
+        "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+        "Board-ready research briefs covering protocol health, tokenomics, regulatory catalysts, and quantitative frameworks."
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
+    # Filters
+    rf_col1, rf_col2, rf_col3 = st.columns([2, 2, 1])
+    with rf_col1:
+        report_cat = st.selectbox(
+            "Category",
+            ["All", "Protocol Deep Dive", "Tokenomics", "Regulatory", "Quantitative", "Market Structure"],
+            key="research_cat",
+        )
+    with rf_col2:
+        report_search = st.text_input("Search reports", placeholder="e.g. Solana, MVRV, unlock...")
+    with rf_col3:
+        st.write("")  # spacing
+        st.write("")
+
+    research_library = [
+        {
+            "title": "Bitcoin Network Health & Long-Term Holder Dynamics – Q3 2026",
+            "category": "Protocol Deep Dive",
+            "date": "2026-07-22",
+            "pages": 18,
+            "summary": "Comprehensive review of active addresses, STH/LTH supply cohorts, realized price bands, and miner revenue sustainability under current difficulty epochs.",
+            "tags": ["BTC", "On-Chain", "HODL"],
+        },
+        {
+            "title": "Ethereum Post-Dencun: Throughput, Blob Economics & L2 Fee Compression",
+            "category": "Protocol Deep Dive",
+            "date": "2026-07-18",
+            "pages": 24,
+            "summary": "Analysis of blob gas markets, L2 settlement costs, and the impact on total value secured across the Ethereum rollup ecosystem.",
+            "tags": ["ETH", "L2", "Fees"],
+        },
+        {
+            "title": "Solana Token Unlock Calendar & Emission Stress Test",
+            "category": "Tokenomics",
+            "date": "2026-07-15",
+            "pages": 12,
+            "summary": "Detailed unlock schedule for the next 90 days with estimated USD impact, circulating supply dilution, and historical price reaction patterns.",
+            "tags": ["SOL", "Unlocks", "Supply"],
+        },
+        {
+            "title": "MVRV as a Regime Indicator Across Major L1s",
+            "category": "Quantitative",
+            "date": "2026-07-10",
+            "pages": 15,
+            "summary": "Cross-sectional study of Market-Value-to-Realized-Value ratios for BTC, ETH, SOL and ADA. Identifies accumulation and distribution thresholds with back-tested hit rates.",
+            "tags": ["MVRV", "Valuation", "Quant"],
+        },
+        {
+            "title": "SEC Multi-Asset Spot ETF Filings – Institutional Implications",
+            "category": "Regulatory",
+            "date": "2026-07-08",
+            "pages": 9,
+            "summary": "Summary of recent 19b-4 submissions, custody requirements, and projected AUM inflows under different approval scenarios.",
+            "tags": ["SEC", "ETF", "Regulation"],
+        },
+        {
+            "title": "Order-Book Microstructure & Net Taker Flow as Leading Indicators",
+            "category": "Market Structure",
+            "date": "2026-07-03",
+            "pages": 14,
+            "summary": "Empirical relationship between aggressive buy/sell imbalance and subsequent 4h–24h returns across the four core assets tracked by BN Analytics.",
+            "tags": ["Order Flow", "Microstructure"],
+        },
+        {
+            "title": "Cardano Governance & Treasury Dynamics After Chang Hard Fork",
+            "category": "Protocol Deep Dive",
+            "date": "2026-06-28",
+            "pages": 11,
+            "summary": "Review of on-chain governance participation, treasury spend velocity, and implications for long-term protocol sustainability.",
+            "tags": ["ADA", "Governance"],
+        },
+        {
+            "title": "Institutional Custody & Staking Yield Landscape 2026",
+            "category": "Market Structure",
+            "date": "2026-06-20",
+            "pages": 16,
+            "summary": "Comparative analysis of regulated custody providers, staking APYs, slashing risk, and insurance coverage for BTC, ETH and SOL.",
+            "tags": ["Custody", "Staking", "Yield"],
+        },
+    ]
+
+    filtered = []
+    for r in research_library:
+        if report_cat != "All" and r["category"] != report_cat:
+            continue
+        if report_search:
+            q = report_search.lower()
+            if not (q in r["title"].lower() or q in r["summary"].lower() or any(q in t.lower() for t in r["tags"])):
+                continue
+        filtered.append(r)
+
+    if not filtered:
+        st.info("No reports match the current filters.")
+    else:
+        st.caption(f"Showing {len(filtered)} report(s)")
+        for r in filtered:
+            st.markdown(f"""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px 20px; border-radius: 10px; margin-bottom: 14px;">
+                    <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+                        <span style="background-color:#374151; color:#10b981; font-size:0.7rem; padding:2px 8px; border-radius:4px; font-weight:600;">{r['category']}</span>
+                        <span style="color:#6b7280; font-size:0.78rem;">{r['date']} · {r['pages']} pages</span>
+                    </div>
+                    <h4 style="color:#ffffff; margin:6px 0 8px 0; font-size:1.05rem;">{r['title']}</h4>
+                    <p style="color:#9ca3af; font-size:0.85rem; line-height:1.45; margin-bottom:10px;">{r['summary']}</p>
+                    <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                        {"".join([f'<span style="background:#111827; color:#9ca3af; font-size:0.72rem; padding:2px 7px; border-radius:4px;">{t}</span>' for t in r['tags']])}
+                    </div>
+                </div>
+            """, unsafe_allow_html=True)
+
+# ===================== INSIGHTS – MARKET ANALYSIS =====================
 elif current_view == "Market Analysis":
-  ma_health = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
-  ma_pillars = ma_health.get("pillar_scores", {})
-  ma_composite = ma_health.get("health_score", 0)
+    st.subheader(f"Market Analysis – {asset_symbol}")
+    st.markdown(
+        "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+        "Multi-dimensional market intelligence: overview bias, trading context, AI model outlook, and token unlock telemetry."
+        "</p>",
+        unsafe_allow_html=True,
+    )
 
-  m_tab_overview, m_tab_trading, m_tab_ai, m_tab_unlock = st.tabs([
-      "Overview", "Trading Data", "AI Select", "Token Unlock"
-  ])
+    m_tab_overview, m_tab_trading, m_tab_ai, m_tab_unlock = st.tabs([
+        "Overview", "Trading Context", "AI Select", "Token Unlock"
+    ])
 
-  with m_tab_overview:
-      st.markdown("### Market Overview & Tracked Assets")
-      st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Highlights plus live economics trajectory for the sidebar target asset."
-          "</p>",
-          unsafe_allow_html=True,
-      )
+    ma_health = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
+    ma_composite = ma_health.get("health_score", 0)
+    ma_pillars = ma_health.get("pillar_scores", {})
+    bias = "Accumulate" if ma_composite >= 65 else ("Hold / Monitor" if ma_composite >= 45 else "Reduce Exposure")
 
-      # Live ranking by health
-      rank_rows = []
-      for sym in ["BTC", "ETH", "SOL", "ADA"]:
-          h = compute_blockactivities_health_score(sym)["health_score"]
-          econ = page_data["economics"][page_data["economics"]["asset_symbol"] == sym]
-          mcap = econ["market_cap"].iloc[-1] if not econ.empty else 0
-          rank_rows.append({"Asset": sym, "Health": round(h, 1), "Market Cap": format_currency(mcap)})
-      st.dataframe(pd.DataFrame(rank_rows).sort_values("Health", ascending=False), use_container_width=True, hide_index=True)
+    with m_tab_overview:
+        st.markdown("### Composite Market Bias")
+        ov1, ov2, ov3 = st.columns(3)
+        with ov1:
+            st.metric("Health Score", f"{ma_composite:.1f}/100")
+        with ov2:
+            st.metric("30-Day Bias", "Bullish" if ma_composite >= 55 else "Cautious")
+        with ov3:
+            st.metric("Recommendation", bias)
 
-      st.markdown("### Market Cap Trajectory")
-      econ_df = page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol]
-      if not econ_df.empty:
-          render_history_chart(
-              econ_df,
-              "market_cap",
-              f"{asset_symbol} Market Capitalization Trajectory",
-              "USD ($)",
-              color="#8b5cf6",
-          )
+        st.markdown("#### Pillar Contribution")
+        pcols = st.columns(5)
+        for col, (label, key) in zip(pcols, [
+            ("Source Code", "sourcecode"),
+            ("Network", "network"),
+            ("Economics", "economics"),
+            ("Sentiment", "sentiment"),
+            ("Accessibility", "accessibility"),
+        ]):
+            with col:
+                st.metric(label, f"{ma_pillars.get(key, 0):.1f}")
 
-  with m_tab_trading:
-      st.markdown("### Trading Data & Order Flow")
-      st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Ledger-derived taker flow plus derivatives context. Exchange-native books can plug in here later."
-          "</p>",
-          unsafe_allow_html=True,
-      )
-      try:
-          flow_df = compute_net_taker_flow(db_path="crypto_data.db")
-          st.dataframe(flow_df, use_container_width=True, hide_index=True)
-      except Exception as e:
-          st.warning(f"Taker flow unavailable: {e}")
+    with m_tab_trading:
+        st.markdown("### Trading Context & Key Levels")
+        st.markdown(
+            "<p style='color: #9ca3af; font-size: 0.85rem;'>"
+            "Reference levels derived from recent price action and on-chain cost basis."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        price_base = 65000 if asset_symbol == "BTC" else (3200 if asset_symbol == "ETH" else (145 if asset_symbol == "SOL" else 0.48))
+        levels = [
+            {"Level": "Strong Support", "Price": f"${price_base * 0.92:,.2f}", "Basis": "LTH cost basis cluster"},
+            {"Level": "Near Support", "Price": f"${price_base * 0.97:,.2f}", "Basis": "Recent swing low"},
+            {"Level": "Spot Reference", "Price": f"${price_base:,.2f}", "Basis": "Current mid"},
+            {"Level": "Near Resistance", "Price": f"${price_base * 1.05:,.2f}", "Basis": "Funding + OI cluster"},
+            {"Level": "Strong Resistance", "Price": f"${price_base * 1.12:,.2f}", "Basis": "Prior distribution zone"},
+        ]
+        st.dataframe(pd.DataFrame(levels), use_container_width=True, hide_index=True)
 
-      t_col1, t_col2 = st.columns(2)
-      with t_col1:
-          st.markdown("""
-              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
-                  <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Derivatives Snapshot</h4>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Total Open Interest:</b> $18.4B (+4.2%)</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Avg Funding Rate:</b> +0.0115%</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Long / Short Ratio:</b> 1.62</p>
-              </div>
-          """, unsafe_allow_html=True)
-      with t_col2:
-          st.markdown("""
-              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
-                  <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Exchange Integration</h4>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;">Ready for proprietary CEX volume, depth, and user-flow feeds.</p>
-                  <span style="color: #3b82f6; font-size: 0.78rem; font-weight: bold;">● Status: Contract defined · feed pending</span>
-              </div>
-          """, unsafe_allow_html=True)
+        st.markdown("#### Net Taker Flow Snapshot")
+        try:
+            flow_df = compute_net_taker_flow(db_path="crypto_data.db")
+            flow_row = flow_df[flow_df["asset_symbol"] == asset_symbol]
+            if not flow_row.empty:
+                st.dataframe(flow_row[["asset_symbol", "Buy", "Sell", "Net_Flow", "Buy_Sell_Ratio"]], use_container_width=True, hide_index=True)
+            else:
+                st.caption("No taker-flow rows for this asset yet.")
+        except Exception:
+            st.caption("Taker-flow summary unavailable.")
 
-  with m_tab_ai:
-      st.markdown("### AI Select & Multi-Pillar Scoring")
-      st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Model outlook combined with live composite health for the selected asset."
-          "</p>",
-          unsafe_allow_html=True,
-      )
-      bias = "Hold / Accumulate" if ma_composite >= 55 else "Monitor / Reduce Risk"
-      ai_col1, ai_col2 = st.columns(2)
-      with ai_col1:
-          st.markdown(f"""
-              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
-                  <h4 style="color: #10b981; margin-top: 0; font-size: 0.95rem;">Model Outlook ({asset_symbol})</h4>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Composite Health:</b> {ma_composite:.1f}/100</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>30-Day Bias:</b> {"Bullish" if ma_composite >= 55 else "Cautious"}</p>
-                  <span style="color: #10b981; font-size: 0.78rem; font-weight: bold;">● Recommendation: {bias}</span>
-              </div>
-          """, unsafe_allow_html=True)
-      with ai_col2:
-          st.markdown(f"""
-              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
-                  <h4 style="color: #8b5cf6; margin-top: 0; font-size: 0.95rem;">Pillar Inputs</h4>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Source Code: {ma_pillars.get('sourcecode', 0):.1f}</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Network: {ma_pillars.get('network', 0):.1f}</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Economics: {ma_pillars.get('economics', 0):.1f}</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Sentiment: {ma_pillars.get('sentiment', 0):.1f}</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 0;">Accessibility: {ma_pillars.get('accessibility', 0):.1f}</p>
-              </div>
-          """, unsafe_allow_html=True)
+    with m_tab_ai:
+        st.markdown("### AI Model Outlook")
+        ai_col1, ai_col2 = st.columns(2)
+        with ai_col1:
+            st.markdown(f"""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
+                    <h4 style="color: #10b981; margin-top: 0; font-size: 0.95rem;">Model Outlook ({asset_symbol})</h4>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>Composite Health:</b> {ma_composite:.1f}/100</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 6px;"><b>30-Day Bias:</b> {"Bullish" if ma_composite >= 55 else "Cautious"}</p>
+                    <span style="color: #10b981; font-size: 0.78rem; font-weight: bold;">● Recommendation: {bias}</span>
+                </div>
+            """, unsafe_allow_html=True)
+        with ai_col2:
+            st.markdown(f"""
+                <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
+                    <h4 style="color: #8b5cf6; margin-top: 0; font-size: 0.95rem;">Pillar Inputs</h4>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Source Code: {ma_pillars.get('sourcecode', 0):.1f}</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Network: {ma_pillars.get('network', 0):.1f}</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Economics: {ma_pillars.get('economics', 0):.1f}</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 4px;">Sentiment: {ma_pillars.get('sentiment', 0):.1f}</p>
+                    <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 0;">Accessibility: {ma_pillars.get('accessibility', 0):.1f}</p>
+                </div>
+            """, unsafe_allow_html=True)
 
-      # Optional lightweight forecast chart from economics history
-      econ_hist = page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol]
-      if not econ_hist.empty and len(econ_hist) >= 5:
-          try:
-              _, forecast = InstitutionalAnalyticsEngine.generate_prophet_forecast(econ_hist, periods=14)
-              fig_fc = go.Figure()
-              fig_fc.add_trace(go.Scatter(
-                  x=pd.to_datetime(econ_hist["metric_date"]),
-                  y=econ_hist["market_cap"],
-                  name="History",
-                  line=dict(color="#8b5cf6"),
-              ))
-              fig_fc.add_trace(go.Scatter(
-                  x=forecast["ds"],
-                  y=forecast["yhat"],
-                  name="Forecast",
-                  line=dict(color="#10b981", dash="dash"),
-              ))
-              fig_fc.update_layout(
-                  title=f"{asset_symbol} Market Cap Forecast (14D)",
-                  plot_bgcolor="rgba(0,0,0,0)",
-                  paper_bgcolor="rgba(0,0,0,0)",
-                  font_color="#f3f4f6",
-                  height=320,
-              )
-              st.plotly_chart(fig_fc, use_container_width=True)
-          except Exception:
-              st.caption("Forecast chart unavailable for this series.")
+        econ_hist = page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol]
+        if not econ_hist.empty and len(econ_hist) >= 5:
+            try:
+                _, forecast = InstitutionalAnalyticsEngine.generate_prophet_forecast(econ_hist, periods=14)
+                fig_fc = go.Figure()
+                fig_fc.add_trace(go.Scatter(
+                    x=pd.to_datetime(econ_hist["metric_date"]),
+                    y=econ_hist["market_cap"],
+                    name="History",
+                    line=dict(color="#8b5cf6"),
+                ))
+                fig_fc.add_trace(go.Scatter(
+                    x=forecast["ds"],
+                    y=forecast["yhat"],
+                    name="Forecast",
+                    line=dict(color="#10b981", dash="dash"),
+                ))
+                fig_fc.update_layout(
+                    title=f"{asset_symbol} Market Cap Forecast (14D)",
+                    plot_bgcolor="rgba(0,0,0,0)",
+                    paper_bgcolor="rgba(0,0,0,0)",
+                    font_color="#f3f4f6",
+                    height=320,
+                )
+                st.plotly_chart(fig_fc, use_container_width=True)
+            except Exception:
+                st.caption("Forecast chart unavailable for this series.")
 
-  with m_tab_unlock:
-      st.markdown("### Token Unlock Schedules & Emission Telemetry")
-      st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Upcoming unlocks and estimated supply impact."
-          "</p>",
-          unsafe_allow_html=True,
-      )
-      unlock_data = [
-          {"Protocol": "SOL", "Unlock Date": "2026-08-01", "Tokens Unlocked": "2,450,000 SOL", "USD Value": "$187.2M", "% Circulating": "0.55%"},
-          {"Protocol": "ETH", "Unlock Date": "2026-08-05", "Tokens Unlocked": "45,000 ETH", "USD Value": "$88.1M", "% Circulating": "0.04%"},
-          {"Protocol": "ADA", "Unlock Date": "2026-08-12", "Tokens Unlocked": "18,200,000 ADA", "USD Value": "$8.7M", "% Circulating": "0.05%"},
-      ]
-      st.dataframe(pd.DataFrame(unlock_data), use_container_width=True, hide_index=True)
+    with m_tab_unlock:
+        st.markdown("### Token Unlock Schedules & Emission Telemetry")
+        st.markdown(
+            "<p style='color: #9ca3af; font-size: 0.85rem;'>"
+            "Upcoming unlocks and estimated supply impact."
+            "</p>",
+            unsafe_allow_html=True,
+        )
+        unlock_data = [
+            {"Protocol": "SOL", "Unlock Date": "2026-08-01", "Tokens Unlocked": "2,450,000 SOL", "USD Value": "$187.2M", "% Circulating": "0.55%"},
+            {"Protocol": "ETH", "Unlock Date": "2026-08-05", "Tokens Unlocked": "45,000 ETH", "USD Value": "$88.1M", "% Circulating": "0.04%"},
+            {"Protocol": "ADA", "Unlock Date": "2026-08-12", "Tokens Unlocked": "18,200,000 ADA", "USD Value": "$8.7M", "% Circulating": "0.05%"},
+            {"Protocol": "BTC", "Unlock Date": "—", "Tokens Unlocked": "N/A (fixed supply)", "USD Value": "—", "% Circulating": "—"},
+        ]
+        st.dataframe(pd.DataFrame(unlock_data), use_container_width=True, hide_index=True)
 
+# ===================== INSIGHTS – NEWS (PHASE 3 POLISH) =====================
 elif current_view == "News":
   st.subheader("Crypto Industry News Feed")
   st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>Curated headlines relevant to institutional monitoring.</p>",
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>Curated headlines relevant to institutional monitoring. Filter by category or search keywords.</p>",
       unsafe_allow_html=True,
   )
+
   news_items = [
-      {"Time": "2 hours ago", "Headline": "SEC Approves New Multi-Chain ETF Baskets", "Tag": "Regulatory"},
-      {"Time": "5 hours ago", "Headline": "Network Throughput Surges Across Layer-1 Ecosystems", "Tag": "Network"},
-      {"Time": "1 day ago", "Headline": "Whale Wallet Accumulation Reaches 6-Month High", "Tag": "On-Chain"},
-      {"Time": "2 days ago", "Headline": "Developer Commit Velocity Rises on Major L1 Repos", "Tag": "Source Code"},
-      {"Time": "3 days ago", "Headline": "Institutional Custody Providers Expand Staking Support", "Tag": "Accessibility"},
+      {"Time": "2 hours ago", "Headline": "SEC Approves New Multi-Chain ETF Baskets", "Tag": "Regulatory", "Source": "Bloomberg Crypto"},
+      {"Time": "5 hours ago", "Headline": "Network Throughput Surges Across Layer-1 Ecosystems", "Tag": "Network", "Source": "The Block"},
+      {"Time": "8 hours ago", "Headline": "Major Custody Provider Expands SOL Staking Support", "Tag": "Accessibility", "Source": "CoinDesk"},
+      {"Time": "1 day ago", "Headline": "Whale Wallet Accumulation Reaches 6-Month High", "Tag": "On-Chain", "Source": "Glassnode Insights"},
+      {"Time": "1 day ago", "Headline": "Developer Commit Velocity Rises on Major L1 Repos", "Tag": "Source Code", "Source": "Electric Capital"},
+      {"Time": "2 days ago", "Headline": "Institutional Custody Providers Expand Staking Support", "Tag": "Accessibility", "Source": "Cointelegraph"},
+      {"Time": "2 days ago", "Headline": "Funding Rates Turn Deeply Negative on Perpetual Futures", "Tag": "Derivatives", "Source": "Coinglass"},
+      {"Time": "3 days ago", "Headline": "MiCA Stablecoin Guidance Updated by European Banking Authority", "Tag": "Regulatory", "Source": "EU Official Journal"},
+      {"Time": "3 days ago", "Headline": "Solana Token Unlock of 2.45M SOL Scheduled for Early August", "Tag": "Tokenomics", "Source": "Token Unlocks"},
+      {"Time": "4 days ago", "Headline": "Active Addresses on Bitcoin Hit Multi-Month Peak", "Tag": "Network", "Source": "Blockchain.com"},
+      {"Time": "5 days ago", "Headline": "Open Interest on ETH Options Hits Record at Deribit", "Tag": "Derivatives", "Source": "Deribit Insights"},
+      {"Time": "6 days ago", "Headline": "GitHub Activity for Core Ethereum Clients Remains Elevated", "Tag": "Source Code", "Source": "CryptoMiso"},
   ]
+
+  n_col1, n_col2 = st.columns([2, 3])
+  with n_col1:
+      news_tag = st.selectbox("Filter by Tag", ["All"] + sorted(list(set(n["Tag"] for n in news_items))))
+  with n_col2:
+      news_q = st.text_input("Search headlines", placeholder="e.g. ETF, whale, unlock...")
+
+  filtered_news = []
   for n in news_items:
-      st.markdown(f"""
-          <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px;">
-              <span style="color: #10b981; font-size: 0.75rem; font-weight: 600;">{n['Tag']}</span>
-              <span style="color: #6b7280; font-size: 0.75rem;"> · {n['Time']}</span>
-              <p style="color: #f3f4f6; font-size: 0.9rem; margin: 4px 0 0 0;">{n['Headline']}</p>
-          </div>
-      """, unsafe_allow_html=True)
+      if news_tag != "All" and n["Tag"] != news_tag:
+          continue
+      if news_q and news_q.lower() not in n["Headline"].lower() and news_q.lower() not in n["Tag"].lower():
+          continue
+      filtered_news.append(n)
+
+  if not filtered_news:
+      st.info("No headlines match the current filters.")
+  else:
+      st.caption(f"{len(filtered_news)} headline(s)")
+      for n in filtered_news:
+          st.markdown(f"""
+              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 14px 16px; border-radius: 8px; margin-bottom: 10px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:4px;">
+                      <span style="color: #10b981; font-size: 0.75rem; font-weight: 600;">{n['Tag']}</span>
+                      <span style="color: #6b7280; font-size: 0.75rem;">{n['Time']} · {n['Source']}</span>
+                  </div>
+                  <p style="color: #f3f4f6; font-size: 0.92rem; margin: 4px 0 0 0;">{n['Headline']}</p>
+              </div>
+          """, unsafe_allow_html=True)
 
 elif current_view == "Overview Dashboard":
   render_live_websocket_ticker()
@@ -1430,7 +1576,6 @@ elif current_view == "Overview Dashboard":
               </div>
           """, unsafe_allow_html=True)
 
-      # Quick jump to full Project Detail
       if st.button("Open full Project Detail →", key="ov_to_detail"):
           push_nav_history()
           st.session_state.nav_category = "Analytics & Terminal"
@@ -1483,7 +1628,6 @@ elif current_view == "Overview Dashboard":
               </div>
           """, unsafe_allow_html=True)
 
-      # Net taker flow from analytics when available
       st.markdown("#### Net Taker Flow (from trade ledger)")
       try:
           flow_df = compute_net_taker_flow(db_path="crypto_data.db")
@@ -1552,7 +1696,6 @@ elif current_view == "Project Detail Page":
     render_live_websocket_ticker()
     price_base = 65000 if asset_symbol == "BTC" else (3200 if asset_symbol == "ETH" else (145 if asset_symbol == "SOL" else 0.48))
 
-    # Live health + latest metrics for this asset
     detail_health = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
     detail_snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
     detail_econ = detail_snapshot.get("economics") or {}
@@ -1593,7 +1736,6 @@ elif current_view == "Project Detail Page":
                 st.success(f"Custom alert successfully configured for {asset_symbol} ({alert_target_type})!")
                 st.session_state.alert_modal_active = False
 
-    # Top-line composite metrics
     render_metric_cards([
         ("Composite Health", f"{composite:.1f}/100", "5-Pillar Score"),
         ("Market Cap", format_currency(detail_econ.get("market_cap", 0)), "Economics"),
@@ -1610,7 +1752,6 @@ elif current_view == "Project Detail Page":
         "📰 Regulatory & Narrative",
     ])
 
-    # --- TAB: 5 PILLARS (core product answer for leadership) ---
     with detail_tab0:
         st.markdown("### Multi-Pillar Health Breakdown")
         st.markdown(
@@ -1655,7 +1796,6 @@ elif current_view == "Project Detail Page":
         ]
         st.dataframe(pd.DataFrame(pillar_rows), use_container_width=True, hide_index=True)
 
-        # Pillar score bars via simple metrics row
         pcols = st.columns(5)
         pillar_labels = [
             ("Source Code", pillar.get("sourcecode", 0), "#10b981"),
@@ -1669,7 +1809,6 @@ elif current_view == "Project Detail Page":
                 st.metric(label, f"{score:.1f}")
 
         st.markdown("<br>", unsafe_allow_html=True)
-        # Historical charts for key pillars
         econ_hist = page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol]
         net_hist = page_data["network"][page_data["network"]["asset_symbol"] == asset_symbol]
         chart_c1, chart_c2 = st.columns(2)
@@ -1678,7 +1817,6 @@ elif current_view == "Project Detail Page":
         with chart_c2:
             render_history_chart(net_hist, "tx_tps", f"{asset_symbol} Network TPS", "TPS", color="#3b82f6")
 
-    # --- TAB: Derivatives ---
     with detail_tab1:
         st.markdown("### Off-Chain Derivatives & Market Structure")
         st.markdown(
@@ -1710,7 +1848,6 @@ elif current_view == "Project Detail Page":
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- TAB: On-Chain Supply ---
     with detail_tab2:
         st.markdown("### On-Chain Supply Dynamics & Cost Basis")
         st.markdown(
@@ -1740,7 +1877,6 @@ elif current_view == "Project Detail Page":
                 </div>
             """, unsafe_allow_html=True)
 
-        # Active addresses trend
         render_history_chart(
             page_data["network"][page_data["network"]["asset_symbol"] == asset_symbol],
             "active_addresses",
@@ -1749,7 +1885,6 @@ elif current_view == "Project Detail Page":
             color="#10b981",
         )
 
-    # --- TAB: Capital Flows & Exchange (prep for acquired exchange) ---
     with detail_tab3:
         st.markdown("### Capital Flows & Exchange Dynamics")
         st.markdown(
@@ -1782,7 +1917,6 @@ elif current_view == "Project Detail Page":
             "into this panel and the Accessibility pillar for a unified analytics + exchange view."
         )
 
-    # --- TAB: Regulatory ---
     with detail_tab4:
         st.markdown("### Regulatory, Filings & Narrative Feed")
         st.markdown(
@@ -1869,7 +2003,6 @@ elif current_view == "Project Explorer":
             "Accessibility": round(pillars.get("accessibility", 0), 1),
         })
 
-    # Summary strip
     if explorer_rows:
         avg_h = sum(r["Health"] for r in explorer_rows) / len(explorer_rows)
         s1, s2, s3 = st.columns(3)
@@ -2051,7 +2184,6 @@ elif current_view == "Watchlist":
   st.markdown("### Quick Actions")
 
   def _nav_to_asset_detail(symbol: str):
-      """Callback runs before widgets instantiate on the next run."""
       push_nav_history()
       st.session_state.asset_symbol = symbol
       st.session_state.nav_category = "Analytics & Terminal"
@@ -2080,6 +2212,7 @@ elif current_view == "Watchlist":
           on_click=_nav_to_overview,
       )
 
+# ===================== LEARN – TUTORIALS (EXPANDED) =====================
 elif current_view == "Tutorials":
   st.subheader("Terminal Tutorials & Guides")
   st.markdown(
@@ -2087,14 +2220,26 @@ elif current_view == "Tutorials":
       unsafe_allow_html=True,
   )
 
+  tut_filter = st.selectbox("Filter by level", ["All Levels", "Beginner", "Intermediate", "Advanced"])
+
   tutorials = [
       {"Title": "Navigating the Multi-Pillar Dashboard", "Level": "Beginner", "Time": "5 min", "Summary": "Learn how Health Scores are composed and how to switch between Network, Economics, Sentiment, and Accessibility views."},
-      {"Title": "Setting Up Automated Health Alerts", "Level": "Beginner", "Time": "4 min", "Summary": "Configure sidebar thresholds and connect Slack/Telegram webhooks for real-time notifications."},
+      {"Title": "Setting Up Automated Health Alerts", "Level": "Beginner", "Time": "4 min", "Summary": "Configure sidebar thresholds and connect Slack/Telegram webhooks for real-time notifications. Understand the audit log."},
       {"Title": "Using Project Explorer & Filters", "Level": "Intermediate", "Time": "6 min", "Summary": "Filter assets by category, search by symbol, and jump into the Project Detail experience."},
       {"Title": "Exporting Executive PDF & CSV Reports", "Level": "Intermediate", "Time": "3 min", "Summary": "Generate board-ready reports directly from the sidebar for any tracked asset."},
       {"Title": "Interpreting Whale Transactions & Order Flow", "Level": "Advanced", "Time": "8 min", "Summary": "Understand large transfer signals, net taker flow, and how they relate to accumulation or distribution phases."},
+      {"Title": "Reading the 5-Pillar Health Score", "Level": "Beginner", "Time": "7 min", "Summary": "Deep explanation of weighting (Source Code 25%, Network 20%, Economics 20%, Sentiment 15%, Accessibility 20%) and how scores update."},
+      {"Title": "Working with the API Playground", "Level": "Intermediate", "Time": "5 min", "Summary": "Authenticate, call /v1/metrics, /v1/economics and /v1/network, and interpret the JSON response."},
+      {"Title": "Token Unlock Calendar Interpretation", "Level": "Advanced", "Time": "6 min", "Summary": "How to combine unlock schedules with health scores and net-flow data to anticipate supply shocks."},
+      {"Title": "Strategy Grid-Search Basics", "Level": "Advanced", "Time": "10 min", "Summary": "Using the InstitutionalAnalyticsEngine to optimise MA crossover parameters and evaluate Sharpe / max drawdown."},
+      {"Title": "Alert History & Compliance Trail", "Level": "Intermediate", "Time": "4 min", "Summary": "Where alert events are stored, how webhook delivery status is recorded, and how to review history in Settings."},
   ]
+
+  shown = 0
   for t in tutorials:
+      if tut_filter != "All Levels" and t["Level"] != tut_filter:
+          continue
+      shown += 1
       st.markdown(f"""
           <div style="background-color: #1f2937; border: 1px solid #374151; padding: 16px 18px; border-radius: 8px; margin-bottom: 12px;">
               <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
@@ -2104,7 +2249,10 @@ elif current_view == "Tutorials":
               <p style="color: #9ca3af; font-size: 0.85rem; margin: 0;">{t['Summary']}</p>
           </div>
       """, unsafe_allow_html=True)
+  if shown == 0:
+      st.info("No tutorials match the selected level.")
 
+# ===================== LEARN – GUIDES (EXPANDED) =====================
 elif current_view == "Guides":
   st.subheader("Risk Management & Compliance Guides")
   st.markdown(
@@ -2113,10 +2261,14 @@ elif current_view == "Guides":
   )
 
   guides = [
-      {"Title": "Establishing Alert Thresholds", "Body": "Start with a conservative health-score floor (e.g. 45–55). Tighten thresholds once you understand normal volatility for each asset."},
-      {"Title": "Webhook & Incident Response", "Body": "Route alerts to a dedicated Slack/Telegram channel. Pair automated notifications with a simple runbook for escalation."},
-      {"Title": "Export & Audit Trail Hygiene", "Body": "Use PDF/CSV exports for investment committee packs. Alert audit logs in the institutional database provide a lightweight compliance trail."},
-      {"Title": "Role-Based Access Hygiene", "Body": "Limit Regenerate Data and user-management actions to Admin. Analysts should focus on read + export workflows."},
+      {"Title": "Establishing Alert Thresholds", "Body": "Start with a conservative health-score floor (e.g. 45–55). Tighten thresholds once you understand normal volatility for each asset. Always keep the audit log enabled."},
+      {"Title": "Webhook & Incident Response", "Body": "Route alerts to a dedicated Slack/Telegram channel. Pair automated notifications with a simple runbook for escalation. Test the webhook from Settings after any URL change."},
+      {"Title": "Export & Audit Trail Hygiene", "Body": "Use PDF/CSV exports for investment committee packs. Alert audit logs in the institutional database provide a lightweight compliance trail that includes webhook delivery status."},
+      {"Title": "Role-Based Access Hygiene", "Body": "Limit Regenerate Data and user-management actions to Admin. Analysts should focus on read + export workflows. Portfolio Managers may configure alerts but not manage users."},
+      {"Title": "Data Refresh Cadence", "Body": "The simulated dataset can be regenerated from Settings (Admin only). In production this will be replaced by scheduled pipeline jobs. Always note the ‘Data refreshed’ timestamp in the sidebar."},
+      {"Title": "Interpreting False Positives", "Body": "A single low health reading does not automatically mean risk. Cross-check pillar scores, recent whale flow, and unlock calendar before acting on an alert."},
+      {"Title": "Webhook Security Notes", "Body": "Never hard-code production webhook secrets in the UI. Prefer environment variables or a secrets manager. Rotate URLs periodically and monitor delivery status in the alert history."},
+      {"Title": "Preparing for Live Data Migration", "Body": "When moving from simulated to live CoinGecko / on-chain / GitHub sources, keep the same pillar interfaces. Caching and graceful fallbacks (already present) will minimise downtime."},
   ]
   for g in guides:
       st.markdown(f"""
@@ -2126,6 +2278,7 @@ elif current_view == "Guides":
           </div>
       """, unsafe_allow_html=True)
 
+# ===================== LEARN – GLOSSARY (EXPANDED) =====================
 elif current_view == "Glossary":
   st.subheader("Blockchain & Finance Glossary")
   st.markdown(
@@ -2134,25 +2287,43 @@ elif current_view == "Glossary":
   )
 
   glossary_items = {
-      "Health Score": "Composite 0–100 rating built from five pillars: Source Code, Network, Economics, Sentiment, and Accessibility.",
+      "Health Score": "Composite 0–100 rating built from five pillars: Source Code (25%), Network (20%), Economics (20%), Sentiment (15%), and Accessibility (20%).",
       "Net Taker Flow": "Difference between aggressive buy volume and aggressive sell volume. Positive values indicate net buying pressure.",
       "MVRV": "Market Value to Realized Value ratio — a valuation multiple comparing current market cap to the aggregate cost basis of holders.",
       "TPS": "Transactions per second — a core network throughput metric.",
       "Whale Transaction": "Large on-chain transfer (typically > $1M notional) that can signal institutional accumulation or distribution.",
       "TVL": "Total Value Locked — aggregate USD value of assets deposited in DeFi protocols.",
       "Funding Rate": "Periodic payment exchanged between long and short positions in perpetual futures markets.",
+      "STH / LTH": "Short-Term Holders vs Long-Term Holders. Cohorts defined by the age of UTXOs or tokens since last movement.",
+      "Open Interest (OI)": "Total number of outstanding derivative contracts that have not been settled.",
+      "Delta Skew": "Difference in implied volatility between out-of-the-money calls and puts; used as a measure of market sentiment.",
+      "Realized Cap": "Aggregate value of all tokens priced at the value when they last moved on-chain.",
+      "Token Unlock": "Scheduled release of previously locked tokens into circulating supply, often creating sell pressure.",
+      "Composite Pillar": "One of the five scored dimensions that feed the overall Health Score.",
+      "Alert Audit Log": "Immutable record of every health-score breach and webhook delivery attempt stored in the institutional database.",
+      "Webhook Dispatcher": "Component that posts alert payloads to Slack, Telegram or custom HTTP endpoints when thresholds are breached.",
+      "RBAC": "Role-Based Access Control — Admin, Portfolio Manager, and Analyst roles with different privileges.",
+      "Grid Search": "Systematic evaluation of parameter combinations (e.g. short/long MA windows) to optimise a trading strategy.",
+      "Sharpe Ratio": "Risk-adjusted return metric: (mean excess return) / (standard deviation of returns), annualised.",
+      "Max Drawdown": "Largest peak-to-trough decline in cumulative returns over a given period.",
+      "Blob Gas": "Post-Dencun Ethereum fee market for data availability used by Layer-2 rollups.",
   }
-  term_search = st.text_input("Filter glossary", placeholder="Type a term...")
+  term_search = st.text_input("Filter glossary", placeholder="Type a term or keyword...")
+  matched = 0
   for term, definition in glossary_items.items():
       if term_search and term_search.lower() not in term.lower() and term_search.lower() not in definition.lower():
           continue
+      matched += 1
       st.markdown(f"""
           <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 6px; margin-bottom: 10px;">
               <b style="color: #10b981;">{term}</b>
               <p style="color: #f3f4f6; font-size: 0.85rem; margin-top: 4px; margin-bottom: 0;">{definition}</p>
           </div>
       """, unsafe_allow_html=True)
+  if matched == 0:
+      st.info("No glossary entries match your search.")
 
+# ===================== SETTINGS (HARDENED AUTOMATION + FEEDBACK) =====================
 elif current_view == "Settings":
   st.subheader("Terminal Settings & Configurations")
   st.markdown("Manage data, API gateway access, notification endpoints, and UI preferences.")
@@ -2171,31 +2342,85 @@ elif current_view == "Settings":
   col_reset1, col_reset2 = st.columns([1, 2])
   with col_reset1:
       if st.button("🔄 Regenerate All Data", type="primary", use_container_width=True):
-          with st.spinner("Regenerating trades and pillar metrics..."):
-              try:
-                  if os.path.exists("crypto_data.db"):
-                      os.remove("crypto_data.db")
-                  generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
-                  generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
-                  st.cache_data.clear()
-                  st.success("Data regenerated successfully. Reloading dashboard...")
-                  st.rerun()
-              except Exception as e:
-                  st.error(f"Regeneration failed: {e}")
+          if st.session_state.role != "Admin":
+              st.error("Only Admin users can regenerate the dataset.")
+          else:
+              with st.spinner("Regenerating trades and pillar metrics..."):
+                  try:
+                      if os.path.exists("crypto_data.db"):
+                          os.remove("crypto_data.db")
+                      generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
+                      generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
+                      st.cache_data.clear()
+                      st.success("✅ Data regenerated successfully. Dashboard will reload with fresh metrics.")
+                      st.rerun()
+                  except Exception as e:
+                      st.error(f"Regeneration failed: {e}")
 
   with col_reset2:
-      st.info("This will delete and recreate `crypto_data.db`. Alert logs and user accounts are not affected.")
+      st.info("This will delete and recreate `crypto_data.db`. Alert logs and user accounts are **not** affected.")
 
   st.markdown("---")
-  st.markdown("### Notification Preferences")
+  st.markdown("### Notification Preferences & Automation Status")
   st.markdown(
-      f"**Current Health Alert Threshold:** {alert_health_min}  \n"
-      f"**Webhook configured:** {'Yes' if webhook_url_input else 'No'}"
+      f"**Current Health Alert Threshold:** `{alert_health_min}`  \n"
+      f"**Webhook configured:** `{'Yes' if webhook_url_input else 'No'}`  \n"
+      f"**Current asset under watch:** `{asset_symbol}` (score: {current_check_score:.1f})"
   )
-  st.caption("Adjust the threshold and webhook URL from the sidebar.")
+  st.caption("Adjust the threshold and webhook URL from the sidebar. Changes take effect immediately.")
+
+  # Test webhook from Settings
+  st.markdown("#### Test Webhook Delivery")
+  test_url = st.text_input("Webhook URL to test", value=webhook_url_input or "", key="settings_test_webhook")
+  if st.button("Send Test Payload"):
+      if not test_url:
+          st.warning("Enter a webhook URL first.")
+      else:
+          try:
+              payload = {"text": f"BNAnalytics Settings Test – {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} – User: {st.session_state.username}"}
+              res = requests.post(test_url, json=payload, timeout=5)
+              if res.status_code in [200, 201]:
+                  log_alert_event(asset_symbol, current_check_score, alert_health_min, "Settings Test", "Delivered")
+                  st.success("✅ Test payload delivered successfully and logged.")
+              else:
+                  log_alert_event(asset_symbol, current_check_score, alert_health_min, "Settings Test", f"Failed ({res.status_code})")
+                  st.warning(f"Webhook responded with status {res.status_code}")
+          except Exception as e:
+              log_alert_event(asset_symbol, current_check_score, alert_health_min, "Settings Test", f"Error: {str(e)[:40]}")
+              st.error(f"Delivery failed: {e}")
+
+  st.markdown("---")
+  st.markdown("### Alert History & Audit Trail")
+  st.markdown(
+      "<p style='color: #9ca3af; font-size: 0.85rem;'>"
+      "Complete record of health-score breaches and webhook delivery attempts. "
+      "Useful for compliance and post-incident review."
+      "</p>",
+      unsafe_allow_html=True,
+  )
+
+  alert_hist = get_alert_history(limit=100)
+  if not alert_hist.empty:
+      st.dataframe(alert_hist, use_container_width=True, hide_index=True)
+
+      # Admin-only clear
+      if st.session_state.role == "Admin":
+          if st.button("🗑️ Clear All Alert Logs (Admin only)", type="secondary"):
+              try:
+                  conn = sqlite3.connect("bnanalytics_institutional.db")
+                  conn.execute("DELETE FROM alert_audit_logs")
+                  conn.commit()
+                  conn.close()
+                  st.success("Alert history cleared.")
+                  st.rerun()
+              except Exception as e:
+                  st.error(f"Could not clear logs: {e}")
+  else:
+      st.caption("No alert events have been recorded yet.")
 
   st.markdown("---")
   st.markdown("### Account & Access")
   st.markdown(f"**Logged in as:** `{st.session_state.username}`")
   st.markdown(f"**Role:** `{st.session_state.role}`")
   st.markdown("**API Key (demo):** `bn_live_99f8a2c10b`")
+  st.caption("Role permissions are enforced for data regeneration and log management.")
