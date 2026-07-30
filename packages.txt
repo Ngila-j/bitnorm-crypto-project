@@ -1,2 +1,2 @@
-zlib1g-dev
 libjpeg-dev
+zlib1g-dev
