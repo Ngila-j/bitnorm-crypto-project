@@ -1,22 +1,21 @@
 # BitNorm / BN Analytics Terminal
 
-Institutional-grade blockchain intelligence platform (Streamlit prototype).
+Institutional-grade blockchain intelligence platform.
 
-This is the **Phase 1 reference implementation** of the BN Analytics terminal. It powers the multi-pillar health scores, project explorer, alerts, executive PDF reports, and the full navigation structure defined in the product sitemap.
+**Phases 1–3:** Streamlit terminal (multi-pillar health, alerts, explorer, learn).  
+**Phase 4:** Production foundation — repo hygiene, CI, Docker, REST API, exchange adapter.
 
 ---
 
 ## Features
 
 - Multi-pillar composite health scores (Source Code, Network, Economics, Sentiment, Accessibility)
-- Live price ticker (CoinGecko with simulated fallback)
-- Overview Dashboard with order-book depth, technical matrix, and whale alerts
-- Project Detail Page (derivatives, on-chain supply, capital flows, regulatory feed)
-- Market Analysis (Overview, Trading Data, AI Select, Token Unlock)
-- Automated health-score alerts + webhook dispatcher (Slack / Telegram)
-- Executive PDF and CSV export
-- Role-aware sidebar (Admin / Portfolio Manager / Analyst)
-- Simulated institutional data layer (trades + 5 metric pillars)
+- Live price ticker + exchange-adapter order books (mock or live)
+- Overview, Project Detail, Explorer, Market Analysis, Watchlist
+- Automated health alerts + webhook dispatcher + audit log
+- Executive PDF / CSV export
+- Production API (`api.py`) for future Next.js / external clients
+- Docker Compose staging stack
 
 ---
 
@@ -24,101 +23,111 @@ This is the **Phase 1 reference implementation** of the BN Analytics terminal. I
 
 ```
 BITNORM-CRYPTO-PROJECT/
-├── app.py                          # Main Streamlit application
-├── analytics.py                    # Health scores, net taker flow, sentiment
-├── pipeline.py                     # Simulated data generation
-├── requirements.txt                # Clean dependency list
-├── logo.png                        # Optional sidebar logo
-├── crypto_data.db                  # Main metrics + trades database (auto-created)
-├── bnanalytics_institutional.db    # Users, API keys, alert audit logs
+├── app.py                 # Streamlit terminal
+├── analytics.py           # Health scores, net taker flow (keep on your machine)
+├── pipeline.py            # Simulated data generation
+├── exchange_adapter.py    # Exchange ticker/order book (mock + live hooks)
+├── api.py                 # FastAPI production contracts
+├── requirements.txt
+├── Dockerfile
+├── docker-compose.yml
+├── .env.example
+├── .gitignore
+├── .github/workflows/ci.yml
 └── README.md
 ```
 
 ---
 
-## Quick Start
-
-### 1. Create and activate a virtual environment
+## Quick Start (local)
 
 ```bash
 python -m venv .venv
-
-# Windows
-.venv\Scripts\activate
-
-# macOS / Linux
+# Windows: .venv\Scripts\activate
 source .venv/bin/activate
-```
 
-### 2. Install dependencies
-
-```bash
 pip install -r requirements.txt
-```
+cp .env.example .env          # optional
+python pipeline.py            # seed demo DB
+python exchange_adapter.py    # seed mock exchange tables
 
-> **Note:** `prophet` is optional. The app includes a lightweight linear fallback if Prophet is not installed or fails to build.
-
-### 3. (Optional) Pre-generate data
-
-```bash
-python pipeline.py
-```
-
-This creates `crypto_data.db` with 5,000 simulated trades and 30 days of pillar metrics for BTC, ETH, SOL, and ADA.  
-The app will also auto-generate the data on first run if the tables are missing.
-
-### 4. Launch the terminal
-
-```bash
 streamlit run app.py
 ```
 
-The app will open in your browser (usually http://localhost:8501).
+### Production API
+
+```bash
+uvicorn api:app --reload --port 8000
+# Docs: http://localhost:8000/docs
+```
+
+Key routes:
+- `GET /health`
+- `GET /v1/health/{symbol}`
+- `GET /v1/flow`
+- `GET /v1/exchange/ticker/{symbol}?refresh=true`
+- `GET /v1/exchange/orderbook/{symbol}?refresh=true`
+- `POST /v1/exchange/refresh`
 
 ---
 
-## Default Access
+## Exchange integration
 
-On first run the app auto-authenticates as:
+| Mode | How |
+|------|-----|
+| `EXCHANGE_MODE=mock` (default) | Simulated ticker + book — no keys needed |
+| `EXCHANGE_MODE=live` | REST calls using `EXCHANGE_API_KEY` + `EXCHANGE_BASE_URL` |
 
-- **Username:** `admin_lead`
-- **Role:** `Admin`
-
-(The institutional users table is seeded automatically.)
-
----
-
-## Regenerating Data
-
-If you want a fresh dataset:
-
-1. Delete `crypto_data.db` (and optionally `bnanalytics_institutional.db`)
-2. Run `python pipeline.py`
-3. Restart the Streamlit app
+1. Copy `.env.example` → `.env`
+2. Fill exchange credentials when available
+3. Adjust endpoint paths in `exchange_adapter.py` (`fetch_ticker_live` / `fetch_orderbook_live`) to match your exchange API
+4. Overview → Order Flow uses the adapter automatically
 
 ---
 
-## Key Modules
+## Docker (staging)
 
-| Module | Responsibility |
-|--------|----------------|
-| `pipeline.py` | Creates tables and generates simulated trades + pillar metrics |
-| `analytics.py` | Computes net taker flow, sentiment index, and composite health scores |
-| `app.py` | Full Streamlit UI, navigation, charts, alerts, and PDF generation |
+```bash
+docker compose up --build
+# Terminal: http://localhost:8501
+# API:      http://localhost:8000/docs
+```
 
 ---
 
-## Next Steps (Roadmap)
+## CI
 
-- **Phase 1 (current):** Stabilize prototype, clean dependencies, documentation
-- **Phase 2:** Core terminal polish + production data contracts
-- **Phase 3:** Insights, automation hardening, Learn section
-- **Phase 4:** Production web app (Next.js + API) + launch
+GitHub Actions (`.github/workflows/ci.yml`) runs on push/PR:
+- Install deps
+- Syntax-check modules
+- Seed pipeline data
+- Mock exchange refresh
+
+---
+
+## Roadmap Status
+
+- **Phase 1 — Prototype foundation:** Complete
+- **Phase 2 — Core terminal polish:** Complete
+- **Phase 3 — Insights, automation, Learn:** Complete
+- **Phase 4 — Production foundation:** Complete (this release)
+  - `.gitignore`, `.env.example`, CI workflow
+  - `exchange_adapter.py` (mock + live hooks)
+  - `api.py` FastAPI contracts
+  - Docker + Compose staging stack
+  - Streamlit order book wired to adapter
+
+### Still ahead (post–Phase 4)
+
+- Full **Next.js** marketing + app shell consuming `/v1/*`
+- Real exchange endpoint mapping once API docs are finalized
+- Managed staging/production hosts (Cloud Run, Fly, AWS, etc.)
+- Hardened auth (replace demo auto-login)
 
 ---
 
 ## Notes
 
-- All data is **simulated** for demonstration purposes.
-- CoinGecko live prices are used when the network is available; otherwise the ticker falls back to simulated values.
-- The dark institutional theme is defined via custom CSS inside `app.py`.
+- Demo data is simulated unless exchange mode is `live` with valid keys.
+- Never commit `.env` or database files with production secrets.
+- Keep `analytics.py` alongside `app.py` in your working directory (imported by terminal + API).

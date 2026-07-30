@@ -1,0 +1,35 @@
+# BitNorm local staging stack (Phase 4)
+services:
+  terminal:
+    build: .
+    ports:
+      - "8501:8501"
+    environment:
+      - BN_ENV=staging
+      - EXCHANGE_MODE=${EXCHANGE_MODE:-mock}
+      - EXCHANGE_API_KEY=${EXCHANGE_API_KEY:-}
+      - EXCHANGE_API_SECRET=${EXCHANGE_API_SECRET:-}
+      - EXCHANGE_BASE_URL=${EXCHANGE_BASE_URL:-https://api.your-exchange.com}
+    volumes:
+      - bn_data:/app/data
+    command: >
+      streamlit run app.py
+      --server.port=8501
+      --server.address=0.0.0.0
+
+  api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - BN_ENV=staging
+      - EXCHANGE_MODE=${EXCHANGE_MODE:-mock}
+      - EXCHANGE_API_KEY=${EXCHANGE_API_KEY:-}
+      - EXCHANGE_BASE_URL=${EXCHANGE_BASE_URL:-https://api.your-exchange.com}
+      - BN_API_HOST=0.0.0.0
+      - BN_API_PORT=8000
+    command: >
+      uvicorn api:app --host 0.0.0.0 --port 8000
+
+volumes:
+  bn_data:
