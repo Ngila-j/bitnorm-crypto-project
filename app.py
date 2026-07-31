@@ -13,6 +13,13 @@ from analytics import (
 )
 from pipeline import generate_all_crypto_metrics, generate_simulated_trades
 try:
+    from catalog import load_catalog, search_catalog, catalog_categories, seed_catalog_projects
+except ImportError:  # pragma: no cover
+    load_catalog = None
+    search_catalog = None
+    catalog_categories = None
+    seed_catalog_projects = None
+try:
     from exchange_adapter import (
         get_mode as exchange_mode,
         get_orderbook as exchange_get_orderbook,
@@ -872,16 +879,30 @@ with st.sidebar.expander("⬇ Exports", expanded=False):
 # --- VIEW ROUTING & RENDERING ---
 current_view = st.session_state.nav_section
 
-# In-page Go Back control (mirrors sidebar; useful on every view)
-if st.session_state.nav_history:
-  top_back_col, _ = st.columns([1, 5])
-  with top_back_col:
+# Ensure catalog exists for Explorer / Search pages
+if seed_catalog_projects:
+  try:
+    seed_catalog_projects(db_path="crypto_data.db", force=False)
+  except Exception:
+    pass
+
+# In-page Go Back + breadcrumb
+top_back_col, top_crumb_col = st.columns([1, 4])
+with top_back_col:
+  if st.session_state.nav_history:
     st.button(
         "← Go Back",
         key="main_go_back",
         on_click=go_back,
         use_container_width=True,
     )
+with top_crumb_col:
+  st.caption(
+      f"{st.session_state.nav_category}  →  **{current_view}**"
+      + (f"  ·  {st.session_state.get('asset_symbol', '')}" if current_view in (
+          "Overview Dashboard", "Project Detail Page", "Market Analysis"
+      ) else "")
+  )
 
 if current_view == "Home":
   render_live_websocket_ticker()
@@ -915,7 +936,20 @@ if current_view == "Home":
           st.session_state.nav_category = "🖥 Terminal"
           st.session_state.nav_section = "Project Explorer"
           st.rerun()
-  st.markdown("<br>", unsafe_allow_html=True)
+  st.markdown(
+      """
+      <div style="background:#111827; border:1px solid #374151; border-radius:10px; padding:14px 18px; margin: 8px 0 20px 0;">
+        <div style="font-size:0.75rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em; margin-bottom:6px;">BitNorm ecosystem</div>
+        <div style="display:flex; flex-wrap:wrap; gap:10px; font-size:0.88rem;">
+          <span style="background:#1f2937; border:1px solid #374151; padding:4px 10px; border-radius:999px; color:#9ca3af;">BNCommunity</span>
+          <span style="background:#064e3b; border:1px solid #10b981; padding:4px 10px; border-radius:999px; color:#6ee7b7; font-weight:600;">BNAnalytics ← you are here</span>
+          <span style="background:#1f2937; border:1px solid #374151; padding:4px 10px; border-radius:999px; color:#9ca3af;">BNExchange</span>
+          <span style="background:#1f2937; border:1px solid #374151; padding:4px 10px; border-radius:999px; color:#9ca3af;">BNBusiness</span>
+        </div>
+      </div>
+      """,
+      unsafe_allow_html=True,
+  )
 
   # Cross-asset health for home summary
   home_health = {}
@@ -1011,8 +1045,9 @@ if current_view == "Home":
 elif current_view == "Features Overview":
     st.subheader("BN Analytics Feature Suite")
     st.markdown(
-        "<p style='color: #9ca3af; font-size: 0.95rem; margin-bottom: 20px;'>"
-        "Enterprise modules for multi-pillar intelligence, risk automation, and institutional reporting."
+        "<p style='color: #9ca3af; font-size: 0.95rem; margin-bottom: 12px;'>"
+        "Enterprise modules for multi-pillar intelligence, risk automation, and institutional reporting. "
+        "BNAnalytics sits alongside <b>BNCommunity</b>, <b>BNExchange</b>, and <b>BNBusiness</b> in the BitNorm ecosystem."
         "</p>",
         unsafe_allow_html=True,
     )
@@ -2206,82 +2241,135 @@ elif current_view == "Project Explorer":
         st.info("No assets match your search / filter criteria. Lower Min Health or clear filters.")
 
 elif current_view == "Categories":
-  st.subheader("Ecosystem Categories Breakdown")
+  st.subheader("Ecosystem Categories")
   st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>Browse protocols grouped by functional utility. "
-      "Select a category to see representative assets and their current health scores.</p>",
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+      "Browse the project catalog by category. Core tracked assets show live health; "
+      "catalog-only rows are ready for BitcoinTalk announcement import."
+      "</p>",
       unsafe_allow_html=True,
   )
-
-  cat_data = {
-      "Layer-1": [
-          {"Asset": "BTC", "Focus": "Store of Value / Settlement", "Health": compute_blockactivities_health_score("BTC")["health_score"]},
-          {"Asset": "ADA", "Focus": "Research-driven Smart Contracts", "Health": compute_blockactivities_health_score("ADA")["health_score"]},
-      ],
-      "Smart Contracts": [
-          {"Asset": "ETH", "Focus": "General-purpose Compute Layer", "Health": compute_blockactivities_health_score("ETH")["health_score"]},
-      ],
-      "Infrastructure": [
-          {"Asset": "SOL", "Focus": "High-throughput Execution", "Health": compute_blockactivities_health_score("SOL")["health_score"]},
-      ],
-      "DeFi": [
-          {"Asset": "—", "Focus": "Coming soon – lending, DEX, and yield protocols", "Health": None},
-      ],
-  }
-
-  selected_cat = st.selectbox("Select Category", list(cat_data.keys()))
-  rows = []
-  for item in cat_data[selected_cat]:
-      rows.append({
-          "Asset": item["Asset"],
-          "Primary Focus": item["Focus"],
-          "Health Score": f"{item['Health']:.1f} / 100" if item["Health"] is not None else "—",
-      })
-  st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-  st.caption("Health scores are composite multi-pillar ratings (Source Code, Network, Economics, Sentiment, Accessibility).")
+  catalog_df = load_catalog(db_path="crypto_data.db") if load_catalog else pd.DataFrame()
+  if catalog_df.empty:
+      st.info("No catalog data yet. Open Settings → Regenerate All Data to seed the catalog.")
+  else:
+      cats = sorted(catalog_df["category"].dropna().unique().tolist())
+      selected_cat = st.selectbox("Select category", cats)
+      subset = catalog_df[catalog_df["category"] == selected_cat].copy()
+      display_rows = []
+      for _, row in subset.iterrows():
+          sym = row.get("symbol") or ""
+          health_txt = "—"
+          if sym in ("BTC", "ETH", "SOL", "ADA"):
+              try:
+                  health_txt = f"{compute_blockactivities_health_score(sym)['health_score']:.1f}/100"
+              except Exception:
+                  health_txt = "—"
+          display_rows.append({
+              "Project": row["project_name"],
+              "Symbol": sym,
+              "Status": row["status"],
+              "Health": health_txt,
+              "Source": row["source"],
+              "Announced": row["announced_at"],
+          })
+      st.dataframe(pd.DataFrame(display_rows), use_container_width=True, hide_index=True)
+      st.caption(f"{len(display_rows)} project(s) in {selected_cat}.")
 
 elif current_view == "All Projects":
-  st.subheader("Complete Directory of Tracked Protocols")
+  st.subheader("Project Catalog")
   st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>Exhaustive list of all indexed blockchain networks currently covered by BN Analytics.</p>",
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+      "Full directory of core tracked protocols plus simulated announcement listings "
+      "(placeholder for BitcoinTalk Altcoin Announcements)."
+      "</p>",
       unsafe_allow_html=True,
   )
-
-  all_rows = []
-  category_map = {"BTC": "Layer-1", "ETH": "Smart Contracts", "SOL": "Infrastructure", "ADA": "Layer-1"}
-  for sym in ["BTC", "ETH", "SOL", "ADA"]:
-      h = compute_blockactivities_health_score(sym)["health_score"]
-      econ_sub = page_data["economics"][page_data["economics"]["asset_symbol"] == sym]
-      mcap = econ_sub["market_cap"].iloc[-1] if not econ_sub.empty else 0
-      all_rows.append({
-          "Symbol": sym,
-          "Category": category_map.get(sym, "—"),
-          "Market Cap": format_currency(mcap),
-          "Health Score": f"{h:.1f} / 100",
-          "Status": "Active Tracking",
-      })
-  st.dataframe(pd.DataFrame(all_rows), use_container_width=True, hide_index=True)
-  st.info("More protocols (Layer-2s, DeFi blue-chips, and infrastructure projects) will be added in upcoming releases.")
+  catalog_df = load_catalog(db_path="crypto_data.db") if load_catalog else pd.DataFrame()
+  if catalog_df.empty:
+      st.info("Catalog is empty. Use Settings → Regenerate All Data to seed demo projects.")
+  else:
+      status_filter = st.multiselect(
+          "Status",
+          options=sorted(catalog_df["status"].dropna().unique().tolist()),
+          default=sorted(catalog_df["status"].dropna().unique().tolist()),
+      )
+      source_filter = st.multiselect(
+          "Source",
+          options=sorted(catalog_df["source"].dropna().unique().tolist()),
+          default=sorted(catalog_df["source"].dropna().unique().tolist()),
+      )
+      view = catalog_df[
+          catalog_df["status"].isin(status_filter) & catalog_df["source"].isin(source_filter)
+      ].copy()
+      rows = []
+      for _, row in view.iterrows():
+          sym = row.get("symbol") or ""
+          health_txt = "—"
+          if sym in ("BTC", "ETH", "SOL", "ADA"):
+              try:
+                  health_txt = f"{compute_blockactivities_health_score(sym)['health_score']:.1f}/100"
+              except Exception:
+                  pass
+          rows.append({
+              "Project": row["project_name"],
+              "Symbol": sym,
+              "Category": row["category"],
+              "Health": health_txt,
+              "Status": row["status"],
+              "Source": row["source"],
+              "Announced": row["announced_at"],
+              "Summary": row["summary"],
+          })
+      st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+      st.caption(f"Showing {len(rows)} of {len(catalog_df)} catalog projects.")
+      st.info("When the BitcoinTalk scraper is connected, new Altcoin Announcements will appear here automatically.")
 
 elif current_view == "Search":
-  st.subheader("Advanced Global Terminal Search")
+  st.subheader("Global Search")
   st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>Search across assets, metrics, repositories, and governance signals.</p>",
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+      "Search tracked assets and the project catalog (name, symbol, category, summary)."
+      "</p>",
       unsafe_allow_html=True,
   )
-  search_box = st.text_input("Search query", placeholder="e.g. BTC health, SOL TPS, whale inflow...")
+  search_box = st.text_input("Search query", placeholder="e.g. BTC, DeFi, oracle, NovaMesh...")
   if search_box:
-      q = search_box.lower()
       matches = []
+      q = search_box.lower().strip()
       for sym in ["BTC", "ETH", "SOL", "ADA"]:
           if q in sym.lower() or any(k in q for k in ["health", "score", "tps", "whale", "market"]):
               h = compute_blockactivities_health_score(sym)["health_score"]
-              matches.append({"Result": sym, "Type": "Asset", "Health Score": f"{h:.1f}/100", "Action": "Open Project Detail"})
-      if matches:
-          st.success(f"Found {len(matches)} matching record(s) for '{search_box}'.")
-          st.dataframe(pd.DataFrame(matches), use_container_width=True, hide_index=True)
+              matches.append({
+                  "Result": sym,
+                  "Type": "Tracked Asset",
+                  "Detail": f"Health {h:.1f}/100",
+                  "Source": "core",
+              })
+      if search_catalog:
+          cat_hits = search_catalog(search_box, db_path="crypto_data.db")
+          for _, row in cat_hits.iterrows():
+              matches.append({
+                  "Result": row["project_name"],
+                  "Type": "Catalog Project",
+                  "Detail": f"{row['category']} · {row['status']}",
+                  "Source": row["source"],
+              })
+      # de-dupe by Result+Type
+      seen = set()
+      unique = []
+      for m in matches:
+          key = (m["Result"], m["Type"])
+          if key not in seen:
+              seen.add(key)
+              unique.append(m)
+      if unique:
+          st.success(f"Found {len(unique)} match(es) for '{search_box}'.")
+          st.dataframe(pd.DataFrame(unique), use_container_width=True, hide_index=True)
       else:
-          st.warning("No matching institutional records found. Try a different symbol or keyword.")
+          st.warning("No matching records. Try a symbol, category (DeFi), or project name.")
+  else:
+      st.caption("Enter a query to search assets and catalog projects.")
 
 elif current_view == "Profile":
   st.subheader("Institutional User Profile")
@@ -2556,14 +2644,36 @@ elif current_view == "Glossary":
 
 elif current_view == "Settings":
   st.subheader("Terminal Settings & Configurations")
-  st.markdown("Manage data, alerts, API access, and notification endpoints.")
+  st.markdown("Manage data, exchange mode, alerts, and notification endpoints.")
+
+  st.markdown("---")
+  st.markdown("### Exchange Feed")
+  _ex = exchange_mode() if callable(exchange_mode) else "unavailable"
+  e1, e2, e3 = st.columns(3)
+  with e1:
+      st.metric("Exchange mode", str(_ex).upper())
+  with e2:
+      st.metric("Env BN_ENV", os.environ.get("BN_ENV", "development"))
+  with e3:
+      st.metric("Live keys set", "Yes" if os.environ.get("EXCHANGE_API_KEY") else "No")
+  st.caption(
+      "Set EXCHANGE_MODE=mock|live and EXCHANGE_API_KEY / EXCHANGE_BASE_URL in `.env`. "
+      "Overview → Order Flow uses the adapter. Live mode falls back to mock on errors."
+  )
+  if st.button("Refresh mock/live exchange snapshots", use_container_width=True):
+      try:
+          from exchange_adapter import refresh_all
+          refresh_all()
+          st.success("Exchange snapshots refreshed.")
+      except Exception as ex:
+          st.warning(f"Exchange refresh: {ex}")
 
   st.markdown("---")
   st.markdown("### Data Management")
   st.markdown(
       f"<p style='color: #9ca3af; font-size: 0.9rem;'>"
       f"<b>Last data refresh:</b> {data_last_refreshed}<br/>"
-      "Regenerate the simulated institutional dataset (trades + multi-pillar metrics)."
+      "Regenerate trades, pillar metrics, and the project catalog seed."
       "</p>",
       unsafe_allow_html=True,
   )
@@ -2571,12 +2681,14 @@ elif current_view == "Settings":
   col_reset1, col_reset2 = st.columns([1, 2])
   with col_reset1:
       if st.button("🔄 Regenerate All Data", type="primary", use_container_width=True):
-          with st.spinner("Regenerating trades and pillar metrics..."):
+          with st.spinner("Regenerating trades, pillars, and catalog..."):
               try:
                   if os.path.exists("crypto_data.db"):
                       os.remove("crypto_data.db")
                   generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
                   generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
+                  if seed_catalog_projects:
+                      seed_catalog_projects(db_path="crypto_data.db", force=True)
                   st.cache_data.clear()
                   st.session_state.alert_breach_keys = set()
                   st.success("Data regenerated successfully. Reloading dashboard...")
@@ -2585,7 +2697,7 @@ elif current_view == "Settings":
                   st.error(f"Regeneration failed: {e}")
 
   with col_reset2:
-      st.info("This will delete and recreate `crypto_data.db`. Alert logs and user accounts are not affected.")
+      st.info("Recreates `crypto_data.db` (metrics + catalog). Alert logs and user accounts are not affected.")
 
   st.markdown("---")
   st.markdown("### Notification Preferences")

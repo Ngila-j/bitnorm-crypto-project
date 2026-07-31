@@ -7,12 +7,18 @@ __pycache__/
 .venv/
 venv/
 env/
-.env
 *.egg-info/
 dist/
 build/
 
-# Databases (local demo data)
+# Secrets & local env
+.env
+.env.local
+.env.*.local
+credentials.json
+*.pem
+
+# Databases (local demo data — regenerate via pipeline)
 *.db
 *.sqlite3
 
@@ -34,9 +40,3 @@ tmp/
 node_modules/
 .next/
 out/
-
-# Secrets
-.env.local
-.env.*.local
-credentials.json
-*.pem

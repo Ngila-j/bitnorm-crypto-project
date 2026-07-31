@@ -303,6 +303,12 @@ def generate_all_crypto_metrics(days=30, db_path="crypto_data.db"):
     generate_economics_metrics(days=days, db_path=db_path)
     generate_sentiment_metrics(days=days, db_path=db_path)
     generate_accessibility_metrics(days=days, db_path=db_path)
+    try:
+        from catalog import seed_catalog_projects
+        n = seed_catalog_projects(db_path=db_path, force=True)
+        print(f"Seeded {n} catalog projects.")
+    except Exception as e:
+        print(f"Catalog seed skipped: {e}")
     print(f"Populated crypto pillar tables in {db_path} for {days} days of simulated data.")
 
 
