@@ -1226,7 +1226,15 @@ elif current_view == "Docs / API":
       sandbox_symbol = st.selectbox("Select Asset Symbol", ["BTC", "ETH", "SOL", "ADA"], key="sandbox_sym")
       sandbox_endpoint = st.selectbox(
           "Select Endpoint",
-          ["/v1/health/{symbol}", "/v1/flow", "/v1/exchange/ticker/{symbol}", "/v1/exchange/orderbook/{symbol}", "/health"],
+          [
+              "/v1/health/{symbol}",
+              "/v1/flow",
+              "/v1/catalog",
+              "/v1/catalog/{symbol}",
+              "/v1/exchange/ticker/{symbol}",
+              "/v1/exchange/orderbook/{symbol}",
+              "/health",
+          ],
           key="sandbox_endpoint",
       )
     with col_play2:
@@ -1249,29 +1257,50 @@ elif current_view == "Docs / API":
             st.error(f"Could not reach local API: {e}. Is uvicorn running?")
         else:
           t_mod.sleep(0.3)
-          hs = compute_blockactivities_health_score(sandbox_symbol, db_path="crypto_data.db")
-          sample_payload = {
-              "status": "success",
-              "code": 200,
-              "timestamp": pd.Timestamp.now().isoformat(),
-              "endpoint": sandbox_endpoint,
-              "data": {
-                  "symbol": sandbox_symbol,
-                  "health_score": float(hs.get("health_score", 0)),
-                  "pillar_scores": hs.get("pillar_scores", {}),
-                  "note": "Simulated sandbox response from terminal engine",
-              },
-          }
+          if sandbox_endpoint.startswith("/v1/catalog"):
+            try:
+              if load_catalog:
+                cdf = load_catalog(db_path="crypto_data.db")
+                if "{symbol}" in sandbox_endpoint:
+                  cdf = cdf[cdf["symbol"].fillna("").str.upper() == sandbox_symbol.upper()]
+                sample_payload = {
+                    "status": "success",
+                    "code": 200,
+                    "endpoint": sandbox_endpoint,
+                    "count": int(len(cdf)),
+                    "rows": cdf.head(10).to_dict(orient="records"),
+                    "note": "Catalog sandbox from local SQLite",
+                }
+              else:
+                sample_payload = {"status": "error", "detail": "catalog module unavailable"}
+            except Exception as e:
+              sample_payload = {"status": "error", "detail": str(e)}
+          else:
+            hs = compute_blockactivities_health_score(sandbox_symbol, db_path="crypto_data.db")
+            sample_payload = {
+                "status": "success",
+                "code": 200,
+                "timestamp": pd.Timestamp.now().isoformat(),
+                "endpoint": sandbox_endpoint,
+                "data": {
+                    "symbol": sandbox_symbol,
+                    "health_score": float(hs.get("health_score", 0)),
+                    "pillar_scores": hs.get("pillar_scores", {}),
+                    "note": "Simulated sandbox response from terminal engine",
+                },
+            }
           st.success("Request processed successfully (200 OK)")
           st.json(sample_payload)
 
   with doc_tab2:
-    st.markdown("### Phase 4 API Endpoints (local FastAPI)")
+    st.markdown("### Phase 4+ API Endpoints (local FastAPI)")
     endpoint_data = [
         {"Endpoint": "/health", "Method": "GET", "Description": "Service health + exchange mode"},
         {"Endpoint": "/v1/assets", "Method": "GET", "Description": "List tracked assets"},
         {"Endpoint": "/v1/health/{symbol}", "Method": "GET", "Description": "Composite + pillar health scores"},
         {"Endpoint": "/v1/flow", "Method": "GET", "Description": "Net taker flow table"},
+        {"Endpoint": "/v1/catalog", "Method": "GET", "Description": "Project catalog (query: q, category, status)"},
+        {"Endpoint": "/v1/catalog/{symbol}", "Method": "GET", "Description": "Catalog rows for a symbol"},
         {"Endpoint": "/v1/exchange/ticker/{symbol}", "Method": "GET", "Description": "Exchange last price / volume"},
         {"Endpoint": "/v1/exchange/orderbook/{symbol}", "Method": "GET", "Description": "Bid/ask depth snapshot"},
         {"Endpoint": "/v1/exchange/refresh", "Method": "POST", "Description": "Refresh mock/live exchange tables"},
@@ -1284,6 +1313,8 @@ elif current_view == "Docs / API":
           "import requests\n\n"
           "r = requests.get('http://127.0.0.1:8000/v1/health/BTC')\n"
           "print(r.json())\n\n"
+          "c = requests.get('http://127.0.0.1:8000/v1/catalog', params={'q': 'ANN'})\n"
+          "print(c.json())\n\n"
           "r2 = requests.get('http://127.0.0.1:8000/v1/exchange/orderbook/BTC', params={'refresh': True})\n"
           "print(r2.json())",
           language="python",
@@ -1291,13 +1322,16 @@ elif current_view == "Docs / API":
     with lang_tab2:
       st.code(
           "curl http://127.0.0.1:8000/v1/health/BTC\n"
+          "curl 'http://127.0.0.1:8000/v1/catalog?q=NovaMesh'\n"
           "curl 'http://127.0.0.1:8000/v1/exchange/ticker/ETH?refresh=true'",
           language="bash",
       )
     with lang_tab3:
       st.code(
           "const r = await fetch('http://127.0.0.1:8000/v1/health/BTC');\n"
-          "console.log(await r.json());",
+          "console.log(await r.json());\n"
+          "const c = await fetch('http://127.0.0.1:8000/v1/catalog?status=Catalog%20Only');\n"
+          "console.log(await c.json());",
           language="javascript",
       )
   with doc_tab3:
@@ -1646,7 +1680,7 @@ elif current_view == "News":
   st.subheader("Crypto Industry News Feed")
   st.markdown(
       "<p style='color: #9ca3af; font-size: 0.9rem;'>"
-      "Curated headlines tagged to pillar themes for institutional monitoring."
+      "Curated pillar headlines plus <b>BitcoinTalk catalog announcements</b> when imported."
       "</p>",
       unsafe_allow_html=True,
   )
@@ -1658,19 +1692,52 @@ elif current_view == "News":
       {"Time": "3 days ago", "Headline": "Institutional Custody Providers Expand Staking Support", "Tag": "Accessibility", "Summary": "Broader custody and staking options improve institutional accessibility scores."},
       {"Time": "4 days ago", "Headline": "Perpetual Funding Rates Normalize After Crowded Longs", "Tag": "Economics", "Summary": "Funding compression reduces leverage stress — relevant to Derivatives panels."},
   ]
+  # Append catalog announcements (bitcointalk + recent catalog rows)
+  try:
+      if load_catalog:
+          cat_news = load_catalog(db_path="crypto_data.db")
+          if not cat_news.empty:
+              cat_news = cat_news.sort_values("announced_at", ascending=False).head(12)
+              for _, row in cat_news.iterrows():
+                  tag = "BitcoinTalk" if str(row.get("source", "")).startswith("bitcointalk") else "Catalog"
+                  news_items.append({
+                      "Time": str(row.get("announced_at") or "—"),
+                      "Headline": str(row.get("project_name") or "Untitled"),
+                      "Tag": tag,
+                      "Summary": str(row.get("summary") or row.get("category") or "")[:220],
+                      "URL": str(row.get("announcement_url") or ""),
+                  })
+  except Exception:
+      pass
+
   tag_options = sorted({n["Tag"] for n in news_items})
-  selected_tags = st.multiselect("Filter by tag", tag_options, default=tag_options)
+  default_tags = [t for t in tag_options if t in ("BitcoinTalk", "Catalog", "Source Code", "Network", "Economics", "Regulatory", "On-Chain", "Accessibility")]
+  selected_tags = st.multiselect(
+      "Filter by tag",
+      tag_options,
+      default=default_tags or tag_options,
+  )
+  shown = 0
   for n in news_items:
       if n["Tag"] not in selected_tags:
           continue
+      url = n.get("URL") or ""
+      link_html = (
+          f'<a href="{url}" target="_blank" style="color:#6ee7b7; font-size:0.75rem;">Open source</a>'
+          if url else ""
+      )
       st.markdown(f"""
           <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px;">
               <span style="color: #10b981; font-size: 0.75rem; font-weight: 600;">{n['Tag']}</span>
               <span style="color: #6b7280; font-size: 0.75rem;"> · {n['Time']}</span>
+              {link_html}
               <p style="color: #f3f4f6; font-size: 0.9rem; margin: 4px 0 2px 0;"><b>{n['Headline']}</b></p>
               <p style="color: #9ca3af; font-size: 0.8rem; margin: 0;">{n['Summary']}</p>
           </div>
       """, unsafe_allow_html=True)
+      shown += 1
+  if shown == 0:
+      st.info("No news items for the selected tags. Import BitcoinTalk samples from Settings or widen the filter.")
 
 elif current_view == "Overview Dashboard":
   render_live_websocket_ticker()
