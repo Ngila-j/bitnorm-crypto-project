@@ -309,6 +309,16 @@ def generate_all_crypto_metrics(days=30, db_path="crypto_data.db"):
         print(f"Seeded {n} catalog projects.")
     except Exception as e:
         print(f"Catalog seed skipped: {e}")
+    try:
+        from bitcointalk_adapter import demo_import as import_bt_samples
+        print(f"BitcoinTalk sample topics imported: {import_bt_samples(db_path=db_path)}")
+    except Exception as e:
+        print(f"BitcoinTalk adapter skipped: {e}")
+    try:
+        from github_repo_adapter import demo_import as import_gh_samples
+        print(f"GitHub sample repos imported: {import_gh_samples(db_path=db_path)}")
+    except Exception as e:
+        print(f"GitHub adapter skipped: {e}")
     print(f"Populated crypto pillar tables in {db_path} for {days} days of simulated data.")
 
 

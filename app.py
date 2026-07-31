@@ -2003,6 +2003,47 @@ elif current_view == "Project Detail Page":
             with col:
                 st.metric(label, f"{score:.1f}")
 
+        # GitHub repository snapshots (from github_repo_adapter / indexation schema)
+        st.markdown("#### Linked GitHub repositories")
+        try:
+            conn_gh = sqlite3.connect("crypto_data.db")
+            gh_df = pd.read_sql(
+                """
+                SELECT repo_id, owner, name, url, commits_count, contributor_count,
+                       stargazers, fork_count, releases, is_fork, is_archived, metric_date
+                FROM github_repositories
+                WHERE UPPER(asset_symbol) = ?
+                ORDER BY stargazers DESC
+                """,
+                conn_gh,
+                params=(asset_symbol.upper(),),
+            )
+            conn_gh.close()
+        except Exception:
+            gh_df = pd.DataFrame()
+        if gh_df.empty:
+            st.caption(
+                "No GitHub repository rows for this asset yet. "
+                "Import samples from Settings or run `python github_repo_adapter.py`."
+            )
+        else:
+            show = gh_df.copy()
+            show["Stars"] = show["stargazers"]
+            show["Commits"] = show["commits_count"]
+            show["Contributors"] = show["contributor_count"]
+            show["Forks"] = show["fork_count"]
+            show["Releases"] = show["releases"]
+            show["Repo"] = show.apply(
+                lambda r: f"{r['owner']}/{r['name']}" if r.get("owner") else r.get("repo_id"),
+                axis=1,
+            )
+            st.dataframe(
+                show[["Repo", "Stars", "Commits", "Contributors", "Forks", "Releases", "url", "metric_date"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption("Source: github_repositories table (BitNorm GithubRepository schema).")
+
         st.markdown("<br>", unsafe_allow_html=True)
         # Historical charts for key pillars
         econ_hist = page_data["economics"][page_data["economics"]["asset_symbol"] == asset_symbol]
@@ -2698,6 +2739,42 @@ elif current_view == "Settings":
 
   with col_reset2:
       st.info("Recreates `crypto_data.db` (metrics + catalog). Alert logs and user accounts are not affected.")
+
+  st.markdown("#### Import BitNorm sample feeds")
+  st.caption(
+      "Loads JSON from the `samples/` folder (BitcoinTalk topics + GitHub repos) "
+      "without wiping the rest of the database."
+  )
+  imp1, imp2, imp3 = st.columns(3)
+  with imp1:
+      if st.button("Import BitcoinTalk samples", use_container_width=True):
+          try:
+              from bitcointalk_adapter import demo_import as bt_import
+              n = bt_import(db_path="crypto_data.db")
+              st.success(f"Imported {n} BitcoinTalk topic(s) into catalog.")
+              st.cache_data.clear()
+          except Exception as e:
+              st.error(f"BitcoinTalk import failed: {e}")
+  with imp2:
+      if st.button("Import GitHub samples", use_container_width=True):
+          try:
+              from github_repo_adapter import demo_import as gh_import
+              n = gh_import(db_path="crypto_data.db")
+              st.success(f"Imported {n} GitHub repo(s) into Source Code metrics.")
+              st.cache_data.clear()
+          except Exception as e:
+              st.error(f"GitHub import failed: {e}")
+  with imp3:
+      if st.button("Import both", use_container_width=True):
+          try:
+              from bitcointalk_adapter import demo_import as bt_import
+              from github_repo_adapter import demo_import as gh_import
+              n1 = bt_import(db_path="crypto_data.db")
+              n2 = gh_import(db_path="crypto_data.db")
+              st.success(f"Imported {n1} topics and {n2} repos.")
+              st.cache_data.clear()
+          except Exception as e:
+              st.error(f"Import failed: {e}")
 
   st.markdown("---")
   st.markdown("### Notification Preferences")
