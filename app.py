@@ -528,6 +528,28 @@ def generate_pdf_report(symbol, health_data, latest_econ, latest_net):
   )
   story.append(Paragraph(score_summary, body_style))
   story.append(Spacer(1, 10))
+  # Optional catalog mentions for this symbol
+  try:
+      if load_catalog:
+          _cdf = load_catalog(db_path="crypto_data.db")
+          if _cdf is not None and not _cdf.empty:
+              _hits = _cdf[
+                  _cdf["symbol"].fillna("").str.upper() == str(symbol).upper()
+              ].head(5)
+              if _hits.empty:
+                  _hits = _cdf[_cdf["source"].astype(str).str.contains("bitcointalk", case=False, na=False)].head(3)
+              if not _hits.empty:
+                  story.append(Paragraph("1b. Related catalog / announcements", heading_style))
+                  lines = []
+                  for _, hr in _hits.iterrows():
+                      lines.append(
+                          f"• {hr.get('project_name', '')} "
+                          f"({hr.get('announced_at', '')}) — {hr.get('source', '')}"
+                      )
+                  story.append(Paragraph("<br/>".join(lines), body_style))
+                  story.append(Spacer(1, 8))
+  except Exception:
+      pass
   story.append(
       Paragraph("2. Key Financial & Operational Metrics", heading_style)
   )
@@ -2070,6 +2092,54 @@ elif current_view == "Project Detail Page":
             with col:
                 st.metric(label, f"{score:.1f}")
 
+        with st.expander("How this health score is calculated", expanded=False):
+            st.markdown(
+                f"""
+**Composite = weighted pillars** for **{asset_symbol}**:
+
+| Pillar | Weight | This asset | Inputs |
+|--------|--------|------------|--------|
+| Source Code | 25% | {pillar.get('sourcecode', 0):.1f} | commits, active developers, repo score |
+| Network | 20% | {pillar.get('network', 0):.1f} | active addresses, TPS, gas |
+| Economics | 20% | {pillar.get('economics', 0):.1f} | market cap, volume, tokenomics |
+| Sentiment | 15% | {pillar.get('sentiment', 0):.1f} | user sentiment index, buy/sell ratio |
+| Accessibility | 20% | {pillar.get('accessibility', 0):.1f} | exchange count, wallet support |
+
+**Composite:** **{composite:.1f}/100**
+                """
+            )
+
+        # Source Code history (commits / active_devs / repo_score over time)
+        st.markdown("#### Source Code activity history")
+        src_hist = page_data["sourcecode"][
+            page_data["sourcecode"]["asset_symbol"] == asset_symbol
+        ].copy()
+        if src_hist.empty:
+            st.info("No Source Code history for this asset yet.")
+            if st.button("Open Settings to import GitHub samples", key=f"cta_src_hist_{asset_symbol}"):
+                push_nav_history()
+                st.session_state.nav_category = "🖥 Terminal"
+                st.session_state.nav_section = "Settings"
+                st.rerun()
+        else:
+            if "metric_date" in src_hist.columns:
+                src_hist = src_hist.sort_values("metric_date")
+            sc1, sc2 = st.columns(2)
+            with sc1:
+                if "commits" in src_hist.columns:
+                    render_history_chart(
+                        src_hist, "commits", f"{asset_symbol} Commits", "Commits", color="#10b981"
+                    )
+                if "repo_score" in src_hist.columns:
+                    render_history_chart(
+                        src_hist, "repo_score", f"{asset_symbol} Repo score", "Score", color="#34d399"
+                    )
+            with sc2:
+                if "active_devs" in src_hist.columns:
+                    render_history_chart(
+                        src_hist, "active_devs", f"{asset_symbol} Active developers", "Devs", color="#059669"
+                    )
+
         # GitHub repository snapshots (from github_repo_adapter / indexation schema)
         st.markdown("#### Linked GitHub repositories")
         try:
@@ -2089,10 +2159,26 @@ elif current_view == "Project Detail Page":
         except Exception:
             gh_df = pd.DataFrame()
         if gh_df.empty:
-            st.caption(
-                "No GitHub repository rows for this asset yet. "
-                "Import samples from Settings or run `python github_repo_adapter.py`."
+            st.info(
+                "No GitHub repository rows for this asset yet."
             )
+            cta1, cta2 = st.columns(2)
+            with cta1:
+                if st.button("Import GitHub samples", key=f"cta_gh_import_{asset_symbol}"):
+                    try:
+                        from github_repo_adapter import demo_import as gh_import
+                        n = gh_import(db_path="crypto_data.db")
+                        st.success(f"Imported {n} repo(s). Refreshing…")
+                        st.cache_data.clear()
+                        st.rerun()
+                    except Exception as e:
+                        st.error(str(e))
+            with cta2:
+                if st.button("Go to Settings", key=f"cta_gh_settings_{asset_symbol}"):
+                    push_nav_history()
+                    st.session_state.nav_category = "🖥 Terminal"
+                    st.session_state.nav_section = "Settings"
+                    st.rerun()
         else:
             show = gh_df.copy()
             show["Stars"] = show["stargazers"]
@@ -2394,8 +2480,25 @@ elif current_view == "All Projects":
       unsafe_allow_html=True,
   )
   catalog_df = load_catalog(db_path="crypto_data.db") if load_catalog else pd.DataFrame()
-  if catalog_df.empty:
-      st.info("Catalog is empty. Use Settings → Regenerate All Data to seed demo projects.")
+  if catalog_df is None or catalog_df.empty:
+      st.info("Catalog is empty.")
+      c1, c2 = st.columns(2)
+      with c1:
+          if st.button("Import BitcoinTalk samples", key="allproj_cta_bt"):
+              try:
+                  from bitcointalk_adapter import demo_import as bt_import
+                  n = bt_import(db_path="crypto_data.db")
+                  st.success(f"Imported {n} topic(s).")
+                  st.cache_data.clear()
+                  st.rerun()
+              except Exception as e:
+                  st.error(str(e))
+      with c2:
+          if st.button("Open Settings (upload JSON/CSV)", key="allproj_cta_settings"):
+              push_nav_history()
+              st.session_state.nav_category = "🖥 Terminal"
+              st.session_state.nav_section = "Settings"
+              st.rerun()
   else:
       status_filter = st.multiselect(
           "Status",
@@ -2520,7 +2623,7 @@ elif current_view == "Profile":
 elif current_view == "Watchlist":
   st.subheader("Custom Asset Watchlist")
   st.markdown(
-      "<p style='color: #9ca3af; font-size: 0.9rem;'>Tracked assets with live health scores and quick status indicators.</p>",
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>Tracked assets with live health scores and catalog pins.</p>",
       unsafe_allow_html=True,
   )
 
@@ -2575,6 +2678,37 @@ elif current_view == "Watchlist":
           key="watch_overview",
           on_click=_nav_to_overview,
       )
+
+  st.markdown("---")
+  st.markdown("### Catalog watch (BitcoinTalk / announcements)")
+  st.caption("Recent catalog projects you can open in All Projects or pin mentally for monitoring.")
+  try:
+      cat_wl = load_catalog(db_path="crypto_data.db") if load_catalog else pd.DataFrame()
+  except Exception:
+      cat_wl = pd.DataFrame()
+  if cat_wl is None or cat_wl.empty:
+      st.info("Catalog is empty.")
+      if st.button("Import BitcoinTalk samples", key="watch_cta_bt"):
+          try:
+              from bitcointalk_adapter import demo_import as bt_import
+              n = bt_import(db_path="crypto_data.db")
+              st.success(f"Imported {n} topic(s).")
+              st.cache_data.clear()
+              st.rerun()
+          except Exception as e:
+              st.error(str(e))
+  else:
+      show_cat = cat_wl.sort_values("announced_at", ascending=False).head(8)
+      st.dataframe(
+          show_cat[["project_name", "symbol", "category", "source", "status", "announced_at"]],
+          use_container_width=True,
+          hide_index=True,
+      )
+      if st.button("Open All Projects", key="watch_open_all_projects"):
+          push_nav_history()
+          st.session_state.nav_category = "🗂 Projects"
+          st.session_state.nav_section = "All Projects"
+          st.rerun()
 
 elif current_view == "Tutorials":
   st.subheader("Terminal Tutorials")
@@ -2786,26 +2920,38 @@ elif current_view == "Settings":
       unsafe_allow_html=True,
   )
 
+  is_admin = str(st.session_state.get("role", "")).lower() == "admin"
   col_reset1, col_reset2 = st.columns([1, 2])
   with col_reset1:
-      if st.button("🔄 Regenerate All Data", type="primary", use_container_width=True):
-          with st.spinner("Regenerating trades, pillars, and catalog..."):
-              try:
-                  if os.path.exists("crypto_data.db"):
-                      os.remove("crypto_data.db")
-                  generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
-                  generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
-                  if seed_catalog_projects:
-                      seed_catalog_projects(db_path="crypto_data.db", force=True)
-                  st.cache_data.clear()
-                  st.session_state.alert_breach_keys = set()
-                  st.success("Data regenerated successfully. Reloading dashboard...")
-                  st.rerun()
-              except Exception as e:
-                  st.error(f"Regeneration failed: {e}")
+      if is_admin:
+          if st.button("🔄 Regenerate All Data", type="primary", use_container_width=True):
+              with st.spinner("Regenerating trades, pillars, and catalog..."):
+                  try:
+                      if os.path.exists("crypto_data.db"):
+                          os.remove("crypto_data.db")
+                      generate_simulated_trades(num_records=5000, db_path="crypto_data.db")
+                      generate_all_crypto_metrics(days=30, db_path="crypto_data.db")
+                      if seed_catalog_projects:
+                          seed_catalog_projects(db_path="crypto_data.db", force=True)
+                      st.cache_data.clear()
+                      st.session_state.alert_breach_keys = set()
+                      st.success("Data regenerated successfully. Reloading dashboard...")
+                      st.rerun()
+                  except Exception as e:
+                      st.error(f"Regeneration failed: {e}")
+      else:
+          st.button(
+              "🔄 Regenerate All Data (Admin only)",
+              disabled=True,
+              use_container_width=True,
+              help="Only Admin role can wipe and rebuild crypto_data.db",
+          )
 
   with col_reset2:
-      st.info("Recreates `crypto_data.db` (metrics + catalog). Alert logs and user accounts are not affected.")
+      if is_admin:
+          st.info("Recreates `crypto_data.db` (metrics + catalog). Alert logs and user accounts are not affected.")
+      else:
+          st.warning(f"Role **{st.session_state.get('role', '—')}** cannot regenerate data. Ask an Admin.")
 
   st.markdown("#### Import BitNorm sample feeds")
   st.caption(
@@ -2842,6 +2988,48 @@ elif current_view == "Settings":
               st.cache_data.clear()
           except Exception as e:
               st.error(f"Import failed: {e}")
+
+  st.markdown("#### Upload catalog file (JSON or CSV)")
+  st.caption(
+      "JSON: array of BitcointalkTopic-like objects (title, _id, announcementDate, …). "
+      "CSV: columns project_name, symbol, category, summary, announcement_url, announced_at, status."
+  )
+  up = st.file_uploader("Catalog upload", type=["json", "csv"], key="catalog_upload")
+  if up is not None and st.button("Import uploaded catalog", type="primary", key="run_catalog_upload"):
+      try:
+          name = (up.name or "").lower()
+          if name.endswith(".json"):
+              import json as _json
+              payload = _json.loads(up.getvalue().decode("utf-8"))
+              if isinstance(payload, dict):
+                  payload = payload.get("topics") or payload.get("rows") or [payload]
+              from bitcointalk_adapter import import_topics
+              n = import_topics(payload, db_path="crypto_data.db")
+              st.success(f"Imported {n} topic(s) from JSON.")
+          else:
+              import io
+              cdf = pd.read_csv(io.BytesIO(up.getvalue()))
+              # Normalize CSV rows into catalog via bitcointalk-like dicts or direct upsert
+              from bitcointalk_adapter import upsert_catalog_row
+              n = 0
+              for _, r in cdf.iterrows():
+                  row = {
+                      "project_name": r.get("project_name") or r.get("title") or "Untitled",
+                      "symbol": r.get("symbol") if pd.notna(r.get("symbol")) else None,
+                      "category": r.get("category") or "Announcements",
+                      "source": r.get("source") or "upload",
+                      "announcement_url": r.get("announcement_url") or r.get("url") or "",
+                      "summary": r.get("summary") or "",
+                      "status": r.get("status") or "Catalog Only",
+                      "announced_at": str(r.get("announced_at") or r.get("announcementDate") or "")[:10]
+                      or datetime.now().strftime("%Y-%m-%d"),
+                  }
+                  upsert_catalog_row(row, db_path="crypto_data.db")
+                  n += 1
+              st.success(f"Imported {n} row(s) from CSV.")
+          st.cache_data.clear()
+      except Exception as e:
+          st.error(f"Upload import failed: {e}")
 
   st.markdown("---")
   st.markdown("### Notification Preferences")
