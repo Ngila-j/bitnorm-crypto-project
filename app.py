@@ -57,65 +57,119 @@ st.set_page_config(
     initial_sidebar_state="expanded",
 )
 
-# Custom High-End Styling
+# Custom High-End Styling (BitNorm Studio–aligned dark + cyan accents)
 st.markdown(
     """
     <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+    html, body, [class*="css"] {
+        font-family: 'Inter', system-ui, sans-serif;
+    }
     .main {
         background-color: #0b0f19;
         color: #f3f4f6;
     }
     .block-container {
-        padding-top: 4.5rem !important;
-        padding-bottom: 3rem;
+        padding-top: 3.2rem !important;
+        padding-bottom: 2.5rem;
+        max-width: 1400px;
     }
-    .sidebar .sidebar-content {
-        background-color: #111827;
+    section[data-testid="stSidebar"] {
+        background-color: #0d121c;
+        border-right: 1px solid #1e293b;
     }
-    h1 {
-        font-size: 1.4rem !important;
-        color: #ffffff;
-        font-family: 'Inter', sans-serif;
-        margin-bottom: 0.1rem !important;
+    section[data-testid="stSidebar"] * {
+        font-family: 'Inter', system-ui, sans-serif;
     }
-    h2 {
-        font-size: 1.2rem !important;
-        color: #ffffff;
-        font-family: 'Inter', sans-serif;
+    h1, h2, h3 {
+        color: #ffffff !important;
+        font-family: 'Inter', system-ui, sans-serif !important;
+        letter-spacing: -0.02em;
     }
-    h3 {
-        font-size: 1.0rem !important;
-        color: #ffffff;
-        font-family: 'Inter', sans-serif;
+    h1 { font-size: 1.45rem !important; margin-bottom: 0.15rem !important; }
+    h2 { font-size: 1.2rem !important; }
+    h3 { font-size: 1.02rem !important; }
+    [data-testid="stMetric"] {
+        background: #111827;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 12px 14px;
+        box-shadow: 0 0 0 1px rgba(6, 182, 212, 0.04);
+    }
+    [data-testid="stMetric"]:hover {
+        border-color: rgba(6, 182, 212, 0.35);
     }
     [data-testid="stMetricValue"] {
-        font-size: 1.6rem !important;
+        font-size: 1.45rem !important;
+        color: #f8fafc !important;
     }
     [data-testid="stMetricLabel"] {
-        font-size: 0.85rem !important;
+        font-size: 0.78rem !important;
+        color: #94a3b8 !important;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+    }
+    [data-testid="stMetricDelta"] {
+        font-size: 0.8rem !important;
+    }
+    /* Tabs — Studio-like underline / active cyan */
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 6px;
+        background: #0f172a;
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        padding: 6px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 8px;
+        color: #94a3b8;
+        padding: 8px 14px;
+        font-weight: 500;
+    }
+    .stTabs [aria-selected="true"] {
+        background: rgba(6, 182, 212, 0.12) !important;
+        color: #22d3ee !important;
+        border: 1px solid rgba(6, 182, 212, 0.35);
+    }
+    div[data-testid="stDataFrame"] {
+        border: 1px solid #1e293b;
+        border-radius: 12px;
+        overflow: hidden;
     }
     .metric-card {
-        background-color: #1f2937;
-        border: 1px solid #374151;
-        padding: 15px;
-        border-radius: 8px;
+        background-color: #111827;
+        border: 1px solid #1e293b;
+        padding: 16px;
+        border-radius: 12px;
     }
     .ticker-bar {
-        background-color: #1f2937;
-        padding: 10px;
-        border-radius: 8px;
+        background: linear-gradient(90deg, #0f172a 0%, #111827 100%);
+        padding: 10px 14px;
+        border-radius: 10px;
         font-weight: 600;
-        color: #10b981;
+        color: #22d3ee;
         text-align: center;
         margin-bottom: 15px;
-        border: 1px solid #374151;
+        border: 1px solid #1e293b;
         font-size: 0.85rem;
+    }
+    .studio-chip {
+        display: inline-block;
+        background: rgba(6, 182, 212, 0.12);
+        color: #67e8f9;
+        border: 1px solid rgba(6, 182, 212, 0.35);
+        font-size: 0.72rem;
+        font-weight: 600;
+        padding: 3px 10px;
+        border-radius: 999px;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
     }
     .alert-box-warning {
         background-color: #7f1d1d;
         border: 1px solid #ef4444;
         padding: 10px;
-        border-radius: 8px;
+        border-radius: 10px;
         color: #fee2e2;
         font-weight: 600;
         margin-bottom: 12px;
@@ -125,7 +179,7 @@ st.markdown(
         background-color: #065f46;
         border: 1px solid #10b981;
         padding: 10px;
-        border-radius: 8px;
+        border-radius: 10px;
         color: #d1fae5;
         font-weight: 600;
         margin-bottom: 12px;
@@ -134,18 +188,32 @@ st.markdown(
     div.stButton > button {
         width: 100%;
         background-color: transparent;
-        color: #9ca3af;
+        color: #94a3b8;
         border: 1px solid transparent;
         border-radius: 8px;
         text-align: left;
         padding: 8px 12px;
         font-weight: 500;
-        transition: all 0.2s ease-in-out;
+        transition: all 0.15s ease-in-out;
     }
     div.stButton > button:hover {
-        background-color: #1f2937;
-        color: #ffffff;
-        border-color: #374151;
+        background-color: #1e293b;
+        color: #f8fafc;
+        border-color: #334155;
+    }
+    div.stButton > button[kind="primary"] {
+        background: linear-gradient(135deg, #0891b2 0%, #0e7490 100%);
+        color: #ffffff !important;
+        border: none;
+        text-align: center;
+        font-weight: 600;
+    }
+    div.stButton > button[kind="primary"]:hover {
+        filter: brightness(1.08);
+        border: none;
+    }
+    hr {
+        border-color: #1e293b !important;
     }
     </style>
 """,
@@ -599,7 +667,7 @@ data_last_refreshed = get_data_last_refreshed()
 if "nav_section" not in st.session_state:
   st.session_state.nav_section = "Home"
 if "nav_category" not in st.session_state:
-  st.session_state.nav_category = "🏠 Landing"
+  st.session_state.nav_category = "Landing"
 if "asset_symbol" not in st.session_state:
   st.session_state.asset_symbol = "BTC"
 if "nav_history" not in st.session_state:
@@ -720,49 +788,55 @@ if st.session_state.nav_history:
   )
 
 nav_categories = {
-    "🏠 Landing": [
+    "Landing": [
         "Home",
         "Features Overview",
         "Pricing",
         "Docs / API",
         "Blog / Resources",
     ],
-    "📊 Insights": [
+    "Insights": [
         "Research Reports",
         "Market Analysis",
         "News",
     ],
-    "🖥 Terminal": [
+    "Terminal": [
         "Overview Dashboard",
         "Project Explorer",
         "Project Detail Page",
         "Compare Assets",
         "Settings",
     ],
-    "🗂 Projects": [
+    "Projects": [
         "Categories",
         "All Projects",
         "Search",
     ],
-    "👤 Account": [
+    "Account": [
         "Profile",
         "Watchlist",
     ],
-    "📖 Learn": [
+    "Learn": [
         "Tutorials",
         "Guides",
         "Glossary",
     ],
 }
 
-# Map legacy category names → new keys (session may still hold old labels)
+# Map legacy / emoji category names → plain keys (Windows Streamlit mangles some emoji)
 _nav_alias = {
-    "Landing & Marketing": "🏠 Landing",
-    "Insights": "📊 Insights",
-    "Analytics & Terminal": "🖥 Terminal",
-    "Projects & Explorer": "🗂 Projects",
-    "Account & Watchlist": "👤 Account",
-    "Learn & Resources": "📖 Learn",
+    "Landing & Marketing": "Landing",
+    "Insights": "Insights",
+    "Analytics & Terminal": "Terminal",
+    "Projects & Explorer": "Projects",
+    "Account & Watchlist": "Account",
+    "Learn & Resources": "Learn",
+    "🏠 Landing": "Landing",
+    "📊 Insights": "Insights",
+    "🖥 Terminal": "Terminal",
+    "🗂 Projects": "Projects",
+    "👤 Account": "Account",
+    "📖 Learn": "Learn",
 }
 if st.session_state.nav_category in _nav_alias:
   st.session_state.nav_category = _nav_alias[st.session_state.nav_category]
@@ -776,7 +850,7 @@ if st.session_state.nav_section not in category_for_section:
   st.session_state.nav_section = "Home"
 if st.session_state.nav_category not in nav_categories:
   st.session_state.nav_category = category_for_section.get(
-      st.session_state.nav_section, "🏠 Landing"
+      st.session_state.nav_section, "Landing"
   )
 
 available_pages = nav_categories[st.session_state.nav_category]
@@ -1007,25 +1081,25 @@ if current_view == "Home":
   with hero_col1:
       if st.button("Explore Live Analytics", key="hero_explore_terminal", use_container_width=True):
           push_nav_history()
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Overview Dashboard"
           st.rerun()
   with hero_col2:
       if st.button("Project Explorer", key="hero_view_ecosystems", use_container_width=True):
           push_nav_history()
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Project Explorer"
           st.rerun()
   with hero_col3:
       if st.button("Compare Assets", key="hero_compare", use_container_width=True):
           push_nav_history()
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Compare Assets"
           st.rerun()
   with hero_col4:
       if st.button("5-Pillar Detail", key="hero_detail", use_container_width=True):
           push_nav_history()
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Project Detail Page"
           st.rerun()
   st.markdown(
@@ -1215,19 +1289,19 @@ elif current_view == "Features Overview":
     with j1:
         if st.button("Open Terminal Overview", use_container_width=True, key="feat_to_ov"):
             push_nav_history()
-            st.session_state.nav_category = "🖥 Terminal"
+            st.session_state.nav_category = "Terminal"
             st.session_state.nav_section = "Overview Dashboard"
             st.rerun()
     with j2:
         if st.button("Open Project Explorer", use_container_width=True, key="feat_to_exp"):
             push_nav_history()
-            st.session_state.nav_category = "🖥 Terminal"
+            st.session_state.nav_category = "Terminal"
             st.session_state.nav_section = "Project Explorer"
             st.rerun()
     with j3:
         if st.button("Open Docs / API", use_container_width=True, key="feat_to_docs"):
             push_nav_history()
-            st.session_state.nav_category = "🏠 Landing"
+            st.session_state.nav_category = "Landing"
             st.session_state.nav_section = "Docs / API"
             st.rerun()
 
@@ -1850,16 +1924,20 @@ elif current_view == "News":
 
 elif current_view == "Overview Dashboard":
   render_live_websocket_ticker()
-  st.subheader(f"Overview Dashboard: {asset_symbol}")
   st.markdown(
-      f"<p style='color: #9ca3af; font-size: 0.85rem;'>"
-      f"Institutional snapshot for <b>{asset_symbol}</b> — composite health, macro context, "
-      f"order-book structure, technicals, and on-chain activity.</p>",
+      f"<span class='studio-chip'>Analytics</span>"
+      f"<h2 style='margin:8px 0 4px 0;'>{asset_symbol} · Terminal Analytics</h2>"
+      f"<p style='color:#94a3b8;font-size:0.88rem;margin:0 0 12px 0;'>"
+      f"Studio-aligned workspace — Asset Overview, Market, 5-Pillar Health Engine, and On-Chain.</p>",
       unsafe_allow_html=True,
   )
 
+  # Studio Analytics tab names
   ov_sub_tab1, ov_sub_tab2, ov_sub_tab3, ov_sub_tab4 = st.tabs([
-      "Macro Overview", "Order Flow & Depth", "Technical Indicators", "On-Chain Activity"
+      "Asset Overview",
+      "Market",
+      "5-Pillar Health Engine",
+      "On-Chain Activity",
   ])
 
   snapshot = fetch_latest_crypto_metrics(asset_symbol, db_path="crypto_data.db")
@@ -1877,37 +1955,7 @@ elif current_view == "Overview Dashboard":
           ("TPS", f"{latest_n.get('tx_tps', 0):.2f}", "Throughput"),
       ])
 
-      rad_c, snap_c = st.columns([1, 1.15])
-      with rad_c:
-          render_pillar_radar(ov_pillars, title=f"{asset_symbol} health radar")
-      with snap_c:
-          st.markdown("#### 5-Pillar Snapshot")
-          pcols = st.columns(5)
-          for col, (label, key) in zip(pcols, [
-              ("Source Code", "sourcecode"),
-              ("Network", "network"),
-              ("Economics", "economics"),
-              ("Sentiment", "sentiment"),
-              ("Accessibility", "accessibility"),
-          ]):
-              with col:
-                  st.metric(label, f"{ov_pillars.get(key, 0):.1f}")
-          st.caption("Composite uses Settings → pillar weights. Open Project Detail for full diagnostics.")
-          if st.button("Open Project Detail", key="ov_open_detail"):
-              push_nav_history()
-              st.session_state.nav_category = "🖥 Terminal"
-              st.session_state.nav_section = "Project Detail Page"
-              st.rerun()
-
-      st.markdown("<br>", unsafe_allow_html=True)
-      st.markdown("### Macro Correlation & Volatility Index")
-      st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Short-term correlation against macro benchmarks and implied volatility context."
-          "</p>",
-          unsafe_allow_html=True,
-      )
-
+      st.markdown("#### Macro correlation & volatility")
       macro_col1, macro_col2 = st.columns(2)
       with macro_col1:
           macro_corr_data = [
@@ -1918,23 +1966,32 @@ elif current_view == "Overview Dashboard":
           st.dataframe(pd.DataFrame(macro_corr_data), use_container_width=True, hide_index=True)
       with macro_col2:
           st.markdown("""
-              <div style="background-color: #1f2937; border: 1px solid #374151; padding: 18px; border-radius: 8px;">
+              <div style="background-color: #111827; border: 1px solid #1e293b; padding: 18px; border-radius: 12px;">
                   <h4 style="color: #ffffff; margin-top: 0; font-size: 0.95rem;">Volatility Metrics</h4>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Implied Volatility (30D IV):</b> 54.2%</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Historical Volatility (HV):</b> 48.6%</p>
-                  <p style="color: #9ca3af; font-size: 0.85rem; margin-bottom: 8px;"><b>Options Put/Call Ratio:</b> 0.72 (Bullish Bias)</p>
+                  <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px;"><b>Implied Volatility (30D IV):</b> 54.2%</p>
+                  <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px;"><b>Historical Volatility (HV):</b> 48.6%</p>
+                  <p style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px;"><b>Options Put/Call Ratio:</b> 0.72 (Bullish Bias)</p>
               </div>
           """, unsafe_allow_html=True)
 
-      # Quick jump to full Project Detail
+      st.markdown("#### Technical indicators (quick)")
+      # Keep technicals accessible from Asset Overview as a compact strip
+      tech_c1, tech_c2, tech_c3 = st.columns(3)
+      with tech_c1:
+          st.metric("RSI (14)", "54.2", "Neutral")
+      with tech_c2:
+          st.metric("MACD", "Bullish cross", "Signal")
+      with tech_c3:
+          st.metric("MA bias", "Above 50D", "Trend")
+
       if st.button("Open full Project Detail →", key="ov_to_detail"):
           push_nav_history()
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Project Detail Page"
           st.rerun()
 
   with ov_sub_tab2:
-      st.markdown("### Order Book Depth & Market Microstructure")
+      st.markdown("### Market · Order book & microstructure")
       _ex_mode = exchange_mode() if callable(exchange_mode) else "mock"
       st.markdown(
           f"<p style='color: #9ca3af; font-size: 0.85rem;'>"
@@ -2017,21 +2074,62 @@ elif current_view == "Overview Dashboard":
           st.caption("Taker-flow summary unavailable.")
 
   with ov_sub_tab3:
-      st.markdown("### Multi-Timeframe Technical Summary")
       st.markdown(
-          "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-          "Consensus view across 1H, 4H, and 1D intervals."
-          "</p>",
+          f"<span class='studio-chip'>Standardized 5-Pillar Health Engine</span>"
+          f"<h3 style='margin:10px 0 6px 0;'>{asset_symbol} On-Chain & Technical Diagnostics</h3>",
           unsafe_allow_html=True,
       )
-      matrix_data = [
-          {"Indicator": "RSI (14)", "1H": "Neutral (54.2)", "4H": "Buy (61.8)", "1D": "Strong Buy (72.4)"},
-          {"Indicator": "MACD Crossover", "1H": "Bullish", "4H": "Bullish", "1D": "Bullish"},
-          {"Indicator": "Moving Averages", "1H": "Buy", "4H": "Strong Buy", "1D": "Strong Buy"},
-          {"Indicator": "Bollinger Bands", "1H": "Neutral", "4H": "Overbought", "1D": "Bullish"},
-      ]
-      st.dataframe(pd.DataFrame(matrix_data), use_container_width=True, hide_index=True)
-      st.success("Overall technical bias: **Bullish** across higher timeframes.")
+      chip_cols = st.columns(5)
+      for col, (label, key) in zip(chip_cols, [
+          ("SOURCECODE", "sourcecode"),
+          ("NETWORK", "network"),
+          ("ECONOMICS", "economics"),
+          ("SENTIMENT", "sentiment"),
+          ("ACCESSIBILITY", "accessibility"),
+      ]):
+          with col:
+              st.metric(label, f"{ov_pillars.get(key, 0):.0f}/100")
+
+      rad_c, meta_c = st.columns([1, 1.1])
+      with rad_c:
+          render_pillar_radar(ov_pillars, title=f"{asset_symbol} radar · {ov_composite:.0f}/100")
+      with meta_c:
+          st.metric("Overall Pillar Index", f"{ov_composite:.1f}/100")
+          st.caption("Weights from Settings → Custom pillar weights.")
+          pw = st.session_state.pillar_weights
+          st.dataframe(
+              pd.DataFrame([
+                  {"Pillar": "Source Code", "Score": round(ov_pillars.get("sourcecode", 0), 1), "Weight %": round(pw["sourcecode"] * 100)},
+                  {"Pillar": "Network", "Score": round(ov_pillars.get("network", 0), 1), "Weight %": round(pw["network"] * 100)},
+                  {"Pillar": "Economics", "Score": round(ov_pillars.get("economics", 0), 1), "Weight %": round(pw["economics"] * 100)},
+                  {"Pillar": "Sentiment", "Score": round(ov_pillars.get("sentiment", 0), 1), "Weight %": round(pw["sentiment"] * 100)},
+                  {"Pillar": "Accessibility", "Score": round(ov_pillars.get("accessibility", 0), 1), "Weight %": round(pw["accessibility"] * 100)},
+              ]),
+              use_container_width=True,
+              hide_index=True,
+          )
+          b1, b2 = st.columns(2)
+          with b1:
+              if st.button("Open Project Detail", key="ov_open_detail", use_container_width=True):
+                  push_nav_history()
+                  st.session_state.nav_category = "Terminal"
+                  st.session_state.nav_section = "Project Detail Page"
+                  st.rerun()
+          with b2:
+              if st.button("Compare Assets", key="ov_open_compare", use_container_width=True):
+                  push_nav_history()
+                  st.session_state.nav_category = "Terminal"
+                  st.session_state.nav_section = "Compare Assets"
+                  st.rerun()
+
+      with st.expander("Multi-timeframe technical matrix"):
+          matrix_data = [
+              {"Indicator": "RSI (14)", "1H": "Neutral (54.2)", "4H": "Buy (61.8)", "1D": "Strong Buy (72.4)"},
+              {"Indicator": "MACD Crossover", "1H": "Bullish", "4H": "Bullish", "1D": "Bullish"},
+              {"Indicator": "Moving Averages", "1H": "Buy", "4H": "Strong Buy", "1D": "Strong Buy"},
+              {"Indicator": "Bollinger Bands", "1H": "Neutral", "4H": "Overbought", "1D": "Bullish"},
+          ]
+          st.dataframe(pd.DataFrame(matrix_data), use_container_width=True, hide_index=True)
 
   with ov_sub_tab4:
       st.markdown("### On-Chain Activity & Whale Tracker")
@@ -2226,7 +2324,7 @@ elif current_view == "Project Detail Page":
             st.info("No Source Code history for this asset yet.")
             if st.button("Open Settings to import GitHub samples", key=f"cta_src_hist_{asset_symbol}"):
                 push_nav_history()
-                st.session_state.nav_category = "🖥 Terminal"
+                st.session_state.nav_category = "Terminal"
                 st.session_state.nav_section = "Settings"
                 st.rerun()
         else:
@@ -2284,7 +2382,7 @@ elif current_view == "Project Detail Page":
             with cta2:
                 if st.button("Go to Settings", key=f"cta_gh_settings_{asset_symbol}"):
                     push_nav_history()
-                    st.session_state.nav_category = "🖥 Terminal"
+                    st.session_state.nav_category = "Terminal"
                     st.session_state.nav_section = "Settings"
                     st.rerun()
         else:
@@ -2530,7 +2628,7 @@ elif current_view == "Project Explorer":
                 def _open_detail(s=sym):
                     push_nav_history()
                     st.session_state.asset_symbol = s
-                    st.session_state.nav_category = "🖥 Terminal"
+                    st.session_state.nav_category = "Terminal"
                     st.session_state.nav_section = "Project Detail Page"
 
                 st.button(
@@ -2620,14 +2718,14 @@ elif current_view == "Compare Assets":
       if st.button(f"Open {left_sym} Project Detail", use_container_width=True, key="cmp_open_left"):
           push_nav_history()
           st.session_state.asset_symbol = left_sym
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Project Detail Page"
           st.rerun()
   with b2:
       if st.button(f"Open {right_sym} Project Detail", use_container_width=True, key="cmp_open_right"):
           push_nav_history()
           st.session_state.asset_symbol = right_sym
-          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_category = "Terminal"
           st.session_state.nav_section = "Project Detail Page"
           st.rerun()
 
@@ -2693,7 +2791,7 @@ elif current_view == "All Projects":
       with c2:
           if st.button("Open Settings (upload JSON/CSV)", key="allproj_cta_settings"):
               push_nav_history()
-              st.session_state.nav_category = "🖥 Terminal"
+              st.session_state.nav_category = "Terminal"
               st.session_state.nav_section = "Settings"
               st.rerun()
   else:
@@ -2750,7 +2848,7 @@ elif current_view == "All Projects":
                   if st.button(f"Open {sym} detail", key=f"catalog_open_{sym}", use_container_width=True):
                       push_nav_history()
                       st.session_state.asset_symbol = sym
-                      st.session_state.nav_category = "🖥 Terminal"
+                      st.session_state.nav_category = "Terminal"
                       st.session_state.nav_section = "Project Detail Page"
                       st.rerun()
 
@@ -2871,12 +2969,12 @@ elif current_view == "Watchlist":
       """Callback runs before widgets instantiate on the next run."""
       push_nav_history()
       st.session_state.asset_symbol = symbol
-      st.session_state.nav_category = "🖥 Terminal"
+      st.session_state.nav_category = "Terminal"
       st.session_state.nav_section = "Project Detail Page"
 
   def _nav_to_overview():
       push_nav_history()
-      st.session_state.nav_category = "🖥 Terminal"
+      st.session_state.nav_category = "Terminal"
       st.session_state.nav_section = "Overview Dashboard"
 
   wcols = st.columns(5)
@@ -2924,7 +3022,7 @@ elif current_view == "Watchlist":
       )
       if st.button("Open All Projects", key="watch_open_all_projects"):
           push_nav_history()
-          st.session_state.nav_category = "🗂 Projects"
+          st.session_state.nav_category = "Projects"
           st.session_state.nav_section = "All Projects"
           st.rerun()
 
@@ -3179,23 +3277,68 @@ elif current_view == "Settings":
           st.rerun()
 
   st.markdown("---")
-  st.markdown("### BitNorm Studio API")
+  st.markdown("### BitNorm GraphQL API")
   st.caption(
-      "Studio documents `https://api.bitnorm.io/v1` with Bearer institutional keys. "
-      "Host did not resolve from this environment (likely demo/placeholder until production DNS)."
+      "Production endpoint: **https://api.bitnorm.com/** (GraphQL). "
+      "Unauthenticated calls return Unauthorized. Token via `BITNORM_API_TOKEN` or field below."
   )
-  api_test_sym = st.text_input("Test symbol", value="ethereum", key="bn_api_test_sym")
-  if st.button("Probe api.bitnorm.io pillars", use_container_width=True):
-      try:
-          url = f"https://api.bitnorm.io/v1/pillars/{api_test_sym.strip().lower()}"
-          res = requests.get(url, timeout=8)
-          st.write(f"HTTP {res.status_code}")
-          try:
-              st.json(res.json())
-          except Exception:
-              st.code(res.text[:500] or "(empty body)")
-      except Exception as e:
-          st.warning(f"API unreachable: {e}. Keep using local SQLite + FastAPI.")
+  try:
+      from bitnorm_api import test_connection, introspect_query_fields, DEFAULT_BASE_URL
+  except Exception:
+      test_connection = None
+      introspect_query_fields = None
+      DEFAULT_BASE_URL = "https://api.bitnorm.com/"
+
+  if "bn_api_token" not in st.session_state:
+      st.session_state.bn_api_token = os.environ.get("BITNORM_API_TOKEN", "")
+
+  st.text_input("API base URL", value=DEFAULT_BASE_URL, key="bn_api_base", disabled=True)
+  st.text_input(
+      "API token (Bearer) — not committed to git",
+      value=st.session_state.bn_api_token,
+      type="password",
+      key="bn_api_token_input",
+      help="Paste token from boss. Prefer setting BITNORM_API_TOKEN in .env for local runs.",
+  )
+  tc1, tc2, tc3 = st.columns(3)
+  with tc1:
+      if st.button("Save token to session", use_container_width=True):
+          st.session_state.bn_api_token = st.session_state.get("bn_api_token_input", "")
+          st.success("Token stored in session only.")
+  with tc2:
+      if st.button("Test connection", type="primary", use_container_width=True):
+          if not test_connection:
+              st.error("bitnorm_api.py not available")
+          else:
+              tok = st.session_state.get("bn_api_token_input") or st.session_state.get("bn_api_token")
+              with st.spinner("Calling api.bitnorm.com…"):
+                  result = test_connection(token=tok or None)
+              if result.get("ok"):
+                  st.success("Connected — GraphQL responded with data.")
+                  st.json(result.get("result", {}))
+              else:
+                  st.warning(
+                      f"Not authorized or error: {result.get('result', {}).get('error', result)}"
+                  )
+                  st.json(result)
+  with tc3:
+      if st.button("Introspect Query fields", use_container_width=True):
+          if not introspect_query_fields:
+              st.error("bitnorm_api.py not available")
+          else:
+              tok = st.session_state.get("bn_api_token_input") or st.session_state.get("bn_api_token")
+              with st.spinner("Introspecting…"):
+                  result = introspect_query_fields(token=tok or None)
+              if result.get("ok"):
+                  st.success("Introspection OK")
+              else:
+                  st.info("Introspection failed (expected without a valid token/ACL).")
+              st.json(result)
+
+  st.caption(
+      "When the boss provides a sample query for pillar/asset health, we will map it into "
+      "Overview / Project Detail. Until then the terminal uses local SQLite metrics."
+  )
 
   st.markdown("---")
   st.markdown("### Data Management")
