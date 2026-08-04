@@ -604,6 +604,62 @@ if "asset_symbol" not in st.session_state:
   st.session_state.asset_symbol = "BTC"
 if "nav_history" not in st.session_state:
   st.session_state.nav_history = []  # list of dicts: {section, category, asset}
+# Institutional defaults (match analytics composite). Studio demo often uses equal 20%.
+if "pillar_weights" not in st.session_state:
+  st.session_state.pillar_weights = {
+      "sourcecode": 0.25,
+      "network": 0.20,
+      "economics": 0.20,
+      "sentiment": 0.15,
+      "accessibility": 0.20,
+  }
+
+
+def reweight_composite(pillar_scores: dict, weights: dict | None = None) -> float:
+  """Recompute composite from pillar scores using session (or provided) weights."""
+  w = weights or st.session_state.get("pillar_weights") or {}
+  keys = ("sourcecode", "network", "economics", "sentiment", "accessibility")
+  total_w = sum(float(w.get(k, 0) or 0) for k in keys) or 1.0
+  score = 0.0
+  for k in keys:
+      score += float(pillar_scores.get(k, 0) or 0) * (float(w.get(k, 0) or 0) / total_w)
+  return round(score, 2)
+
+
+def render_pillar_radar(pillar_scores: dict, title: str = "Health radar"):
+  """Studio-style 5-pillar spider chart."""
+  labels = ["Source Code", "Network", "Economics", "Sentiment", "Accessibility"]
+  keys = ["sourcecode", "network", "economics", "sentiment", "accessibility"]
+  values = [float(pillar_scores.get(k, 0) or 0) for k in keys]
+  # Close the polygon
+  labels_c = labels + [labels[0]]
+  values_c = values + [values[0]]
+  fig = go.Figure(
+      data=[
+          go.Scatterpolar(
+              r=values_c,
+              theta=labels_c,
+              fill="toself",
+              name="Pillars",
+              line=dict(color="#10b981", width=2),
+              fillcolor="rgba(16, 185, 129, 0.25)",
+          )
+      ]
+  )
+  fig.update_layout(
+      polar=dict(
+          radialaxis=dict(visible=True, range=[0, 100], showticklabels=True, ticks=""),
+          bgcolor="rgba(0,0,0,0)",
+      ),
+      showlegend=False,
+      template="plotly_dark",
+      title=dict(text=title, font=dict(size=14)),
+      height=380,
+      margin=dict(l=40, r=40, t=50, b=30),
+      paper_bgcolor="rgba(0,0,0,0)",
+      plot_bgcolor="rgba(0,0,0,0)",
+  )
+  st.plotly_chart(fig, use_container_width=True)
 
 
 def push_nav_history():
@@ -680,6 +736,7 @@ nav_categories = {
         "Overview Dashboard",
         "Project Explorer",
         "Project Detail Page",
+        "Compare Assets",
         "Settings",
     ],
     "🗂 Projects": [
@@ -938,25 +995,38 @@ if current_view == "Home":
       </div>
   """, unsafe_allow_html=True)
   st.markdown("""
-      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border: 1px solid #374151; padding: 35px; border-radius: 12px; text-align: center; margin-bottom: 25px;">
-          <h1 style="font-size: 2.2rem !important; color: #ffffff; margin-bottom: 10px;">Institutional Intelligence for the Blockchain & Smart Contract Ecosystem</h1>
-          <p style="color: #9ca3af; font-size: 1.05rem; max-width: 800px; margin: 0 auto 20px auto;">
-              Unrivaled data telemetry powered by automated GitHub source code ingestion pipelines, advanced economic monitoring, and multi-pillar market intelligence.
+      <div style="background: linear-gradient(135deg, #1f2937 0%, #111827 100%); border: 1px solid #374151; padding: 35px; border-radius: 12px; text-align: center; margin-bottom: 18px;">
+          <div style="display:inline-block; background:#064e3b; color:#6ee7b7; font-size:0.72rem; font-weight:600; padding:3px 10px; border-radius:999px; margin-bottom:12px;">STANDARDIZED CRYPTO INTELLIGENCE</div>
+          <h1 style="font-size: 2.1rem !important; color: #ffffff; margin-bottom: 10px;">Understand Crypto Beyond Price Speculation</h1>
+          <p style="color: #9ca3af; font-size: 1.02rem; max-width: 820px; margin: 0 auto 8px auto;">
+              BNAnalytics indexes GitHub velocity, network activity, token economics, sentiment, and accessibility into a standardized 5-pillar protocol health score.
           </p>
       </div>
   """, unsafe_allow_html=True)
-  hero_col1, hero_col2, hero_col3 = st.columns([1, 1, 2])
+  hero_col1, hero_col2, hero_col3, hero_col4 = st.columns(4)
   with hero_col1:
-      if st.button("Explore Terminal", key="hero_explore_terminal"):
+      if st.button("Explore Live Analytics", key="hero_explore_terminal", use_container_width=True):
           push_nav_history()
           st.session_state.nav_category = "🖥 Terminal"
           st.session_state.nav_section = "Overview Dashboard"
           st.rerun()
   with hero_col2:
-      if st.button("View Ecosystem Maps", key="hero_view_ecosystems"):
+      if st.button("Project Explorer", key="hero_view_ecosystems", use_container_width=True):
           push_nav_history()
           st.session_state.nav_category = "🖥 Terminal"
           st.session_state.nav_section = "Project Explorer"
+          st.rerun()
+  with hero_col3:
+      if st.button("Compare Assets", key="hero_compare", use_container_width=True):
+          push_nav_history()
+          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_section = "Compare Assets"
+          st.rerun()
+  with hero_col4:
+      if st.button("5-Pillar Detail", key="hero_detail", use_container_width=True):
+          push_nav_history()
+          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_section = "Project Detail Page"
           st.rerun()
   st.markdown(
       """
@@ -978,7 +1048,22 @@ if current_view == "Home":
   for _sym in ["BTC", "ETH", "SOL", "ADA"]:
       home_health[_sym] = compute_blockactivities_health_score(_sym, db_path="crypto_data.db")
 
-  score_val = home_health[asset_symbol]["health_score"]
+  st.markdown("#### Protocol health leaderboard")
+  lb_cols = st.columns(4)
+  for i, _sym in enumerate(["BTC", "ETH", "SOL", "ADA"]):
+      _p = home_health[_sym].get("pillar_scores", {})
+      _c = reweight_composite(_p)
+      with lb_cols[i]:
+          st.markdown(
+              f"<div style='background:#111827;border:1px solid #374151;border-radius:10px;padding:12px 14px;'>"
+              f"<div style='color:#9ca3af;font-size:0.8rem;'>{_sym}</div>"
+              f"<div style='color:#10b981;font-size:1.4rem;font-weight:700;'>{_c:.0f}<span style='font-size:0.85rem;color:#6b7280;'>/100</span></div>"
+              f"<div style='color:#6b7280;font-size:0.72rem;margin-top:4px;'>DEV {_p.get('sourcecode',0):.0f} · NET {_p.get('network',0):.0f}</div>"
+              f"</div>",
+              unsafe_allow_html=True,
+          )
+
+  score_val = reweight_composite(home_health[asset_symbol].get("pillar_scores", {}))
   if score_val < alert_health_min:
     st.markdown(
         f'<div class="alert-box-warning">WARNING: {asset_symbol} Health'
@@ -999,7 +1084,9 @@ if current_view == "Home":
   total_repos = len(page_data["sourcecode"]) if "sourcecode" in page_data else 1420
   active_threads = len(page_data["sentiment"]) if "sentiment" in page_data else 385
   tagged_contracts = len(page_data["network"]) if "network" in page_data else 5120
-  avg_all = sum(h["health_score"] for h in home_health.values()) / max(len(home_health), 1)
+  avg_all = sum(
+      reweight_composite(h.get("pillar_scores", {})) for h in home_health.values()
+  ) / max(len(home_health), 1)
 
   dash_col1, dash_col2, dash_col3, dash_col4 = st.columns(4)
   with dash_col1:
@@ -1009,13 +1096,13 @@ if current_view == "Home":
   with dash_col3:
     st.metric("Smart Contracts Tagged", f"{tagged_contracts:,}", "Custom Framework")
   with dash_col4:
-    st.metric("Avg Health (All Assets)", f"{avg_all:.1f}/100", "Composite")
+    st.metric("Avg Radar Score", f"{avg_all:.1f}/100", "Custom weights")
 
   # Per-asset health strip
   st.markdown("#### Live Asset Health")
   hcols = st.columns(4)
   for col, sym in zip(hcols, ["BTC", "ETH", "SOL", "ADA"]):
-      hs = home_health[sym]["health_score"]
+      hs = reweight_composite(home_health[sym].get("pillar_scores", {}))
       with col:
           st.metric(sym, f"{hs:.1f}/100", "Alert" if hs < alert_health_min else "OK")
 
@@ -1031,20 +1118,20 @@ if current_view == "Home":
   cat_map = {"BTC": "Layer-1", "ETH": "Smart Contracts", "SOL": "Infrastructure", "ADA": "Layer-1"}
   for sym in ["BTC", "ETH", "SOL", "ADA"]:
       payload = home_health[sym]
-      h_score = payload["health_score"]
       pillars = payload.get("pillar_scores", {})
+      h_score = reweight_composite(pillars)
       leaderboard_data.append({
           "Protocol": sym,
           "Category": cat_map.get(sym, "—"),
-          "Health": round(h_score, 1),
-          "Source Code": round(pillars.get("sourcecode", 0), 1),
-          "Network": round(pillars.get("network", 0), 1),
-          "Economics": round(pillars.get("economics", 0), 1),
-          "Sentiment": round(pillars.get("sentiment", 0), 1),
-          "Accessibility": round(pillars.get("accessibility", 0), 1),
+          "Radar Score": round(h_score, 1),
+          "DEV": round(pillars.get("sourcecode", 0), 1),
+          "NET": round(pillars.get("network", 0), 1),
+          "ECON": round(pillars.get("economics", 0), 1),
+          "SENT": round(pillars.get("sentiment", 0), 1),
+          "ACCESS": round(pillars.get("accessibility", 0), 1),
           "Status": "Alert" if h_score < alert_health_min else "OK",
       })
-  lb_df = pd.DataFrame(leaderboard_data).sort_values(by="Health", ascending=False)
+  lb_df = pd.DataFrame(leaderboard_data).sort_values(by="Radar Score", ascending=False)
   st.dataframe(lb_df, use_container_width=True, hide_index=True)
 
   # Alert audit summary
@@ -1780,27 +1867,37 @@ elif current_view == "Overview Dashboard":
   latest_e = snapshot["economics"] or {}
   health_score = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
   ov_pillars = health_score.get("pillar_scores", {})
-  ov_composite = health_score.get("health_score", 0)
+  ov_composite = reweight_composite(ov_pillars)
 
   with ov_sub_tab1:
       render_metric_cards([
-          ("Health Score", f"{ov_composite:.1f}/100", "Composite"),
+          ("Radar Score", f"{ov_composite:.1f}/100", "Custom weights"),
           ("Market Cap", format_currency(latest_e.get("market_cap", 0)), "Economics"),
           ("Active Addresses", f"{latest_n.get('active_addresses', 0):,}", "Network"),
           ("TPS", f"{latest_n.get('tx_tps', 0):.2f}", "Throughput"),
       ])
 
-      st.markdown("#### 5-Pillar Snapshot")
-      pcols = st.columns(5)
-      for col, (label, key) in zip(pcols, [
-          ("Source Code", "sourcecode"),
-          ("Network", "network"),
-          ("Economics", "economics"),
-          ("Sentiment", "sentiment"),
-          ("Accessibility", "accessibility"),
-      ]):
-          with col:
-              st.metric(label, f"{ov_pillars.get(key, 0):.1f}")
+      rad_c, snap_c = st.columns([1, 1.15])
+      with rad_c:
+          render_pillar_radar(ov_pillars, title=f"{asset_symbol} health radar")
+      with snap_c:
+          st.markdown("#### 5-Pillar Snapshot")
+          pcols = st.columns(5)
+          for col, (label, key) in zip(pcols, [
+              ("Source Code", "sourcecode"),
+              ("Network", "network"),
+              ("Economics", "economics"),
+              ("Sentiment", "sentiment"),
+              ("Accessibility", "accessibility"),
+          ]):
+              with col:
+                  st.metric(label, f"{ov_pillars.get(key, 0):.1f}")
+          st.caption("Composite uses Settings → pillar weights. Open Project Detail for full diagnostics.")
+          if st.button("Open Project Detail", key="ov_open_detail"):
+              push_nav_history()
+              st.session_state.nav_category = "🖥 Terminal"
+              st.session_state.nav_section = "Project Detail Page"
+              st.rerun()
 
       st.markdown("<br>", unsafe_allow_html=True)
       st.markdown("### Macro Correlation & Volatility Index")
@@ -1985,7 +2082,9 @@ elif current_view == "Project Detail Page":
     detail_sent = detail_snapshot.get("sentiment") or {}
     detail_acc = detail_snapshot.get("accessibility") or {}
     pillar = detail_health.get("pillar_scores", {})
-    composite = detail_health.get("health_score", 0)
+    # Prefer session custom weights (Studio-style radar engine)
+    composite = reweight_composite(pillar)
+    default_composite = float(detail_health.get("health_score", 0) or 0)
 
     header_col1, header_col2 = st.columns([3, 1])
     with header_col1:
@@ -2037,47 +2136,56 @@ elif current_view == "Project Detail Page":
     # --- TAB: 5 PILLARS (core product answer for leadership) ---
     with detail_tab0:
         st.markdown("### Multi-Pillar Health Breakdown")
+        _pw = st.session_state.pillar_weights
         st.markdown(
             "<p style='color: #9ca3af; font-size: 0.85rem;'>"
-            "The composite Health Score is a weighted blend of five institutional pillars: "
-            "Source Code, Network, Economics, Sentiment, and Accessibility."
+            "Composite uses your <b>Settings → Pillar weights</b> "
+            f"(currently SC {_pw['sourcecode']*100:.0f}% · Net {_pw['network']*100:.0f}% · "
+            f"Econ {_pw['economics']*100:.0f}% · Sent {_pw['sentiment']*100:.0f}% · "
+            f"Acc {_pw['accessibility']*100:.0f}%). "
+            f"Engine default composite: {default_composite:.1f}."
             "</p>",
             unsafe_allow_html=True,
         )
 
-        pillar_rows = [
-            {
-                "Pillar": "Source Code",
-                "Score": f"{pillar.get('sourcecode', 0):.1f}/100",
-                "Weight": "25%",
-                "Key Signals": f"Commits {detail_src.get('commits', '—')} · Active devs {detail_src.get('active_devs', '—')} · Repo score {detail_src.get('repo_score', '—')}",
-            },
-            {
-                "Pillar": "Network",
-                "Score": f"{pillar.get('network', 0):.1f}/100",
-                "Weight": "20%",
-                "Key Signals": f"Active addresses {detail_net.get('active_addresses', 0):,} · TPS {detail_net.get('tx_tps', 0):.2f} · Gas {detail_net.get('gas_fee_gwei', 0):.2f} gwei",
-            },
-            {
-                "Pillar": "Economics",
-                "Score": f"{pillar.get('economics', 0):.1f}/100",
-                "Weight": "20%",
-                "Key Signals": f"MCap {format_currency(detail_econ.get('market_cap', 0))} · Vol {format_currency(detail_econ.get('volume_24h', 0))} · Tokenomics {detail_econ.get('tokenomics_score', '—')}",
-            },
-            {
-                "Pillar": "Sentiment",
-                "Score": f"{pillar.get('sentiment', 0):.1f}/100",
-                "Weight": "15%",
-                "Key Signals": f"User sentiment {detail_sent.get('user_sentiment_index', '—')} · Buy/Sell ratio {detail_sent.get('buy_sell_ratio', '—')}",
-            },
-            {
-                "Pillar": "Accessibility",
-                "Score": f"{pillar.get('accessibility', 0):.1f}/100",
-                "Weight": "20%",
-                "Key Signals": f"Exchanges {detail_acc.get('exchange_count', '—')} · Wallet support {detail_acc.get('wallet_support_score', '—')}",
-            },
-        ]
-        st.dataframe(pd.DataFrame(pillar_rows), use_container_width=True, hide_index=True)
+        radar_col, table_col = st.columns([1, 1.2])
+        with radar_col:
+            render_pillar_radar(pillar, title=f"{asset_symbol} health radar")
+            st.metric("Composite (custom weights)", f"{composite:.1f}/100")
+        with table_col:
+            pillar_rows = [
+                {
+                    "Pillar": "Source Code",
+                    "Score": f"{pillar.get('sourcecode', 0):.1f}/100",
+                    "Weight": f"{_pw['sourcecode']*100:.0f}%",
+                    "Key Signals": f"Commits {detail_src.get('commits', '—')} · Active devs {detail_src.get('active_devs', '—')} · Repo score {detail_src.get('repo_score', '—')}",
+                },
+                {
+                    "Pillar": "Network",
+                    "Score": f"{pillar.get('network', 0):.1f}/100",
+                    "Weight": f"{_pw['network']*100:.0f}%",
+                    "Key Signals": f"Active addresses {detail_net.get('active_addresses', 0):,} · TPS {detail_net.get('tx_tps', 0):.2f} · Gas {detail_net.get('gas_fee_gwei', 0):.2f} gwei",
+                },
+                {
+                    "Pillar": "Economics",
+                    "Score": f"{pillar.get('economics', 0):.1f}/100",
+                    "Weight": f"{_pw['economics']*100:.0f}%",
+                    "Key Signals": f"MCap {format_currency(detail_econ.get('market_cap', 0))} · Vol {format_currency(detail_econ.get('volume_24h', 0))} · Tokenomics {detail_econ.get('tokenomics_score', '—')}",
+                },
+                {
+                    "Pillar": "Sentiment",
+                    "Score": f"{pillar.get('sentiment', 0):.1f}/100",
+                    "Weight": f"{_pw['sentiment']*100:.0f}%",
+                    "Key Signals": f"User sentiment {detail_sent.get('user_sentiment_index', '—')} · Buy/Sell ratio {detail_sent.get('buy_sell_ratio', '—')}",
+                },
+                {
+                    "Pillar": "Accessibility",
+                    "Score": f"{pillar.get('accessibility', 0):.1f}/100",
+                    "Weight": f"{_pw['accessibility']*100:.0f}%",
+                    "Key Signals": f"Exchanges {detail_acc.get('exchange_count', '—')} · Wallet support {detail_acc.get('wallet_support_score', '—')}",
+                },
+            ]
+            st.dataframe(pd.DataFrame(pillar_rows), use_container_width=True, hide_index=True)
 
         # Pillar score bars via simple metrics row
         pcols = st.columns(5)
@@ -2366,8 +2474,8 @@ elif current_view == "Project Explorer":
 
     for sym in base_assets:
         health_payload = compute_blockactivities_health_score(sym, db_path="crypto_data.db")
-        h_score = health_payload["health_score"]
         pillars = health_payload.get("pillar_scores", {})
+        h_score = reweight_composite(pillars)
         health_by_sym[sym] = h_score
 
         econ_sub = page_data["economics"][page_data["economics"]["asset_symbol"] == sym]
@@ -2389,28 +2497,28 @@ elif current_view == "Project Explorer":
             "Category": ecosystem_cat,
             "Market Cap": format_currency(mcap),
             "24h Volume": format_currency(vol),
-            "Health": round(h_score, 1),
+            "Radar Score": round(h_score, 1),
             "Status": status,
-            "Source Code": round(pillars.get("sourcecode", 0), 1),
-            "Network": round(pillars.get("network", 0), 1),
-            "Economics": round(pillars.get("economics", 0), 1),
-            "Sentiment": round(pillars.get("sentiment", 0), 1),
-            "Accessibility": round(pillars.get("accessibility", 0), 1),
+            "DEV": round(pillars.get("sourcecode", 0), 1),
+            "NET": round(pillars.get("network", 0), 1),
+            "ECON": round(pillars.get("economics", 0), 1),
+            "SENT": round(pillars.get("sentiment", 0), 1),
+            "ACCESS": round(pillars.get("accessibility", 0), 1),
         })
 
     # Summary strip
     if explorer_rows:
-        avg_h = sum(r["Health"] for r in explorer_rows) / len(explorer_rows)
+        avg_h = sum(r["Radar Score"] for r in explorer_rows) / len(explorer_rows)
         s1, s2, s3 = st.columns(3)
         with s1:
             st.metric("Assets Shown", len(explorer_rows))
         with s2:
-            st.metric("Avg Health", f"{avg_h:.1f}/100")
+            st.metric("Avg Radar Score", f"{avg_h:.1f}/100")
         with s3:
-            top = max(explorer_rows, key=lambda r: r["Health"])
-            st.metric("Top Asset", f"{top['Asset']} ({top['Health']})")
+            top = max(explorer_rows, key=lambda r: r["Radar Score"])
+            st.metric("Top Asset", f"{top['Asset']} ({top['Radar Score']})")
 
-        df_exp = pd.DataFrame(explorer_rows).sort_values(by="Health", ascending=False)
+        df_exp = pd.DataFrame(explorer_rows).sort_values(by="Radar Score", ascending=False)
         st.dataframe(df_exp, use_container_width=True, hide_index=True)
 
         st.markdown("#### Open Project Detail")
@@ -2433,6 +2541,95 @@ elif current_view == "Project Explorer":
                 )
     else:
         st.info("No assets match your search / filter criteria. Lower Min Health or clear filters.")
+
+elif current_view == "Compare Assets":
+  st.subheader("Compare Assets")
+  st.markdown(
+      "<p style='color: #9ca3af; font-size: 0.9rem;'>"
+      "Side-by-side multi-pillar health for two tracked protocols. Uses local SQLite metrics only."
+      "</p>",
+      unsafe_allow_html=True,
+  )
+  symbols = ["BTC", "ETH", "SOL", "ADA"]
+  csel1, csel2 = st.columns(2)
+  with csel1:
+      left_sym = st.selectbox("Asset A", symbols, index=0, key="compare_left")
+  with csel2:
+      right_opts = [s for s in symbols if s != left_sym] or symbols
+      right_default = 0 if "ETH" not in right_opts else right_opts.index("ETH")
+      right_sym = st.selectbox("Asset B", right_opts, index=min(right_default, len(right_opts) - 1), key="compare_right")
+
+  left_h = compute_blockactivities_health_score(left_sym, db_path="crypto_data.db")
+  right_h = compute_blockactivities_health_score(right_sym, db_path="crypto_data.db")
+  lp = left_h.get("pillar_scores", {})
+  rp = right_h.get("pillar_scores", {})
+
+  m1, m2, m3 = st.columns(3)
+  with m1:
+      st.metric(f"{left_sym} composite", f"{left_h.get('health_score', 0):.1f}")
+  with m2:
+      delta = float(left_h.get("health_score", 0)) - float(right_h.get("health_score", 0))
+      st.metric("Spread (A − B)", f"{delta:+.1f}")
+  with m3:
+      st.metric(f"{right_sym} composite", f"{right_h.get('health_score', 0):.1f}")
+
+  pillar_keys = [
+      ("Source Code", "sourcecode"),
+      ("Network", "network"),
+      ("Economics", "economics"),
+      ("Sentiment", "sentiment"),
+      ("Accessibility", "accessibility"),
+  ]
+  compare_rows = []
+  for label, key in pillar_keys:
+      a = float(lp.get(key, 0))
+      b = float(rp.get(key, 0))
+      compare_rows.append({
+          "Pillar": label,
+          left_sym: round(a, 1),
+          right_sym: round(b, 1),
+          "Delta (A−B)": round(a - b, 1),
+          "Leader": left_sym if a > b else (right_sym if b > a else "Tie"),
+      })
+  st.dataframe(pd.DataFrame(compare_rows), use_container_width=True, hide_index=True)
+
+  # Simple grouped bar via plotly
+  try:
+      chart_df = pd.DataFrame({
+          "Pillar": [p[0] for p in pillar_keys],
+          left_sym: [float(lp.get(p[1], 0)) for p in pillar_keys],
+          right_sym: [float(rp.get(p[1], 0)) for p in pillar_keys],
+      })
+      fig_cmp = go.Figure()
+      fig_cmp.add_trace(go.Bar(name=left_sym, x=chart_df["Pillar"], y=chart_df[left_sym], marker_color="#10b981"))
+      fig_cmp.add_trace(go.Bar(name=right_sym, x=chart_df["Pillar"], y=chart_df[right_sym], marker_color="#3b82f6"))
+      fig_cmp.update_layout(
+          barmode="group",
+          template="plotly_dark",
+          height=360,
+          margin=dict(l=20, r=20, t=30, b=20),
+          legend=dict(orientation="h", yanchor="bottom", y=1.02),
+          yaxis_title="Score",
+      )
+      st.plotly_chart(fig_cmp, use_container_width=True)
+  except Exception as e:
+      st.caption(f"Chart unavailable: {e}")
+
+  b1, b2 = st.columns(2)
+  with b1:
+      if st.button(f"Open {left_sym} Project Detail", use_container_width=True, key="cmp_open_left"):
+          push_nav_history()
+          st.session_state.asset_symbol = left_sym
+          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_section = "Project Detail Page"
+          st.rerun()
+  with b2:
+      if st.button(f"Open {right_sym} Project Detail", use_container_width=True, key="cmp_open_right"):
+          push_nav_history()
+          st.session_state.asset_symbol = right_sym
+          st.session_state.nav_category = "🖥 Terminal"
+          st.session_state.nav_section = "Project Detail Page"
+          st.rerun()
 
 elif current_view == "Categories":
   st.subheader("Ecosystem Categories")
@@ -2535,6 +2732,27 @@ elif current_view == "All Projects":
       st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
       st.caption(f"Showing {len(rows)} of {len(catalog_df)} catalog projects.")
       st.info("When the BitcoinTalk scraper is connected, new Altcoin Announcements will appear here automatically.")
+
+      # Deep-link tracked symbols → Project Detail
+      tracked = sorted(
+          {
+              str(s).upper()
+              for s in view["symbol"].dropna().tolist()
+              if str(s).upper() in ("BTC", "ETH", "SOL", "ADA")
+          }
+      )
+      if tracked:
+          st.markdown("#### Open tracked assets in terminal")
+          st.caption("Symbols with full pillar data can open Project Detail directly.")
+          tcols = st.columns(min(4, len(tracked)))
+          for i, sym in enumerate(tracked):
+              with tcols[i % len(tcols)]:
+                  if st.button(f"Open {sym} detail", key=f"catalog_open_{sym}", use_container_width=True):
+                      push_nav_history()
+                      st.session_state.asset_symbol = sym
+                      st.session_state.nav_category = "🖥 Terminal"
+                      st.session_state.nav_section = "Project Detail Page"
+                      st.rerun()
 
 elif current_view == "Search":
   st.subheader("Global Search")
@@ -2909,6 +3127,75 @@ elif current_view == "Settings":
           st.success("Exchange snapshots refreshed.")
       except Exception as ex:
           st.warning(f"Exchange refresh: {ex}")
+
+  st.markdown("---")
+  st.markdown("### Custom pillar weights (radar engine)")
+  st.caption(
+      "Studio-style re-weighting. Weights are normalized to 100% when scoring. "
+      "Affects Project Detail composite and radar context."
+  )
+  pw = st.session_state.pillar_weights
+  wc1, wc2 = st.columns(2)
+  with wc1:
+      w_sc = st.slider("Source Code %", 0, 100, int(round(pw["sourcecode"] * 100)), key="w_sc")
+      w_net = st.slider("Network %", 0, 100, int(round(pw["network"] * 100)), key="w_net")
+      w_econ = st.slider("Economics %", 0, 100, int(round(pw["economics"] * 100)), key="w_econ")
+  with wc2:
+      w_sent = st.slider("Sentiment %", 0, 100, int(round(pw["sentiment"] * 100)), key="w_sent")
+      w_acc = st.slider("Accessibility %", 0, 100, int(round(pw["accessibility"] * 100)), key="w_acc")
+      st.metric("Sum (before normalize)", f"{w_sc + w_net + w_econ + w_sent + w_acc}%")
+  bwa, bwb, bwc = st.columns(3)
+  with bwa:
+      if st.button("Save weights", type="primary", use_container_width=True):
+          raw = {
+              "sourcecode": w_sc,
+              "network": w_net,
+              "economics": w_econ,
+              "sentiment": w_sent,
+              "accessibility": w_acc,
+          }
+          s = sum(raw.values()) or 1
+          st.session_state.pillar_weights = {k: v / s for k, v in raw.items()}
+          st.success("Weights saved for this session.")
+  with bwb:
+      if st.button("Institutional defaults (25/20/20/15/20)", use_container_width=True):
+          st.session_state.pillar_weights = {
+              "sourcecode": 0.25,
+              "network": 0.20,
+              "economics": 0.20,
+              "sentiment": 0.15,
+              "accessibility": 0.20,
+          }
+          st.rerun()
+  with bwc:
+      if st.button("Equal 20% (Studio-style)", use_container_width=True):
+          st.session_state.pillar_weights = {
+              "sourcecode": 0.20,
+              "network": 0.20,
+              "economics": 0.20,
+              "sentiment": 0.20,
+              "accessibility": 0.20,
+          }
+          st.rerun()
+
+  st.markdown("---")
+  st.markdown("### BitNorm Studio API")
+  st.caption(
+      "Studio documents `https://api.bitnorm.io/v1` with Bearer institutional keys. "
+      "Host did not resolve from this environment (likely demo/placeholder until production DNS)."
+  )
+  api_test_sym = st.text_input("Test symbol", value="ethereum", key="bn_api_test_sym")
+  if st.button("Probe api.bitnorm.io pillars", use_container_width=True):
+      try:
+          url = f"https://api.bitnorm.io/v1/pillars/{api_test_sym.strip().lower()}"
+          res = requests.get(url, timeout=8)
+          st.write(f"HTTP {res.status_code}")
+          try:
+              st.json(res.json())
+          except Exception:
+              st.code(res.text[:500] or "(empty body)")
+      except Exception as e:
+          st.warning(f"API unreachable: {e}. Keep using local SQLite + FastAPI.")
 
   st.markdown("---")
   st.markdown("### Data Management")
