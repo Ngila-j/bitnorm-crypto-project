@@ -132,10 +132,29 @@ def init_catalog_table(db_path: str = "crypto_data.db") -> None:
             summary TEXT,
             status TEXT,
             announced_at TEXT,
+            replies INTEGER DEFAULT 0,
+            views INTEGER DEFAULT 0,
+            github_repos TEXT,
+            topic_type TEXT,
             UNIQUE(project_name, source)
         )
         """
     )
+    # Migrate older DBs missing engagement / link columns
+    cur = conn.cursor()
+    cur.execute("PRAGMA table_info(catalog_projects)")
+    cols = {row[1] for row in cur.fetchall()}
+    for col, decl in [
+        ("replies", "INTEGER DEFAULT 0"),
+        ("views", "INTEGER DEFAULT 0"),
+        ("github_repos", "TEXT"),
+        ("topic_type", "TEXT"),
+    ]:
+        if col not in cols:
+            try:
+                cur.execute(f"ALTER TABLE catalog_projects ADD COLUMN {col} {decl}")
+            except sqlite3.OperationalError:
+                pass
     conn.commit()
     conn.close()
 
@@ -190,14 +209,37 @@ def load_catalog(db_path: str = "crypto_data.db") -> pd.DataFrame:
     df = pd.read_sql(
         """
         SELECT id, project_name, symbol, category, source, announcement_url,
-               summary, status, announced_at
+               summary, status, announced_at,
+               COALESCE(replies, 0) AS replies,
+               COALESCE(views, 0) AS views,
+               github_repos,
+               topic_type
         FROM catalog_projects
         ORDER BY announced_at DESC
         """,
         conn,
     )
     conn.close()
+    if df.empty:
+        return df
+    df["replies"] = pd.to_numeric(df["replies"], errors="coerce").fillna(0).astype(int)
+    df["views"] = pd.to_numeric(df["views"], errors="coerce").fillna(0).astype(int)
+    # Engagement score: views + 5 * replies (indexation-style attention proxy)
+    df["engagement"] = df["views"] + 5 * df["replies"]
+    tracked = {"BTC", "ETH", "SOL", "ADA"}
+    df["tracked"] = df["symbol"].fillna("").astype(str).str.upper().isin(tracked)
     return df
+
+
+def catalog_announcement_velocity(db_path: str = "crypto_data.db") -> pd.DataFrame:
+    """Daily announcement counts for velocity chart."""
+    df = load_catalog(db_path)
+    if df.empty or "announced_at" not in df.columns:
+        return pd.DataFrame(columns=["date", "count"])
+    tmp = df.copy()
+    tmp["date"] = tmp["announced_at"].astype(str).str[:10]
+    out = tmp.groupby("date").size().reset_index(name="count").sort_values("date")
+    return out
 
 
 def search_catalog(query: str, db_path: str = "crypto_data.db") -> pd.DataFrame:

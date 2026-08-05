@@ -13,12 +13,19 @@ from analytics import (
 )
 from pipeline import generate_all_crypto_metrics, generate_simulated_trades
 try:
-    from catalog import load_catalog, search_catalog, catalog_categories, seed_catalog_projects
+    from catalog import (
+        load_catalog,
+        search_catalog,
+        catalog_categories,
+        seed_catalog_projects,
+        catalog_announcement_velocity,
+    )
 except ImportError:  # pragma: no cover
     load_catalog = None
     search_catalog = None
     catalog_categories = None
     seed_catalog_projects = None
+    catalog_announcement_velocity = None
 try:
     from exchange_adapter import (
         get_mode as exchange_mode,
@@ -1863,38 +1870,84 @@ elif current_view == "News":
   st.subheader("Crypto Industry News Feed")
   st.markdown(
       "<p style='color: #9ca3af; font-size: 0.9rem;'>"
-      "Curated pillar headlines plus <b>BitcoinTalk catalog announcements</b> when imported."
+      "Curated headlines plus <b>BitcoinTalk announcements</b> ranked by engagement "
+      "(views + 5×replies) when imported from indexation."
       "</p>",
       unsafe_allow_html=True,
   )
   news_items = [
-      {"Time": "2 hours ago", "Headline": "SEC Approves New Multi-Chain ETF Baskets", "Tag": "Regulatory", "Summary": "Expanded product shelf may increase institutional accessibility for multi-asset exposure."},
-      {"Time": "5 hours ago", "Headline": "Network Throughput Surges Across Layer-1 Ecosystems", "Tag": "Network", "Summary": "Elevated TPS and active addresses support stronger Network pillar readings on major L1s."},
-      {"Time": "1 day ago", "Headline": "Whale Wallet Accumulation Reaches 6-Month High", "Tag": "On-Chain", "Summary": "Large-wallet inflows coincide with exchange outflows — monitor Overview whale tables."},
-      {"Time": "2 days ago", "Headline": "Developer Commit Velocity Rises on Major L1 Repos", "Tag": "Source Code", "Summary": "Higher commit counts feed Source Code pillar inputs used in composite health."},
-      {"Time": "3 days ago", "Headline": "Institutional Custody Providers Expand Staking Support", "Tag": "Accessibility", "Summary": "Broader custody and staking options improve institutional accessibility scores."},
-      {"Time": "4 days ago", "Headline": "Perpetual Funding Rates Normalize After Crowded Longs", "Tag": "Economics", "Summary": "Funding compression reduces leverage stress — relevant to Derivatives panels."},
+      {"Time": "2 hours ago", "Headline": "SEC Approves New Multi-Chain ETF Baskets", "Tag": "Regulatory", "Summary": "Expanded product shelf may increase institutional accessibility for multi-asset exposure.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
+      {"Time": "5 hours ago", "Headline": "Network Throughput Surges Across Layer-1 Ecosystems", "Tag": "Network", "Summary": "Elevated TPS and active addresses support stronger Network pillar readings on major L1s.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
+      {"Time": "1 day ago", "Headline": "Whale Wallet Accumulation Reaches 6-Month High", "Tag": "On-Chain", "Summary": "Large-wallet inflows coincide with exchange outflows — monitor Overview whale tables.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
+      {"Time": "2 days ago", "Headline": "Developer Commit Velocity Rises on Major L1 Repos", "Tag": "Source Code", "Summary": "Higher commit counts feed Source Code pillar inputs used in composite health.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
+      {"Time": "3 days ago", "Headline": "Institutional Custody Providers Expand Staking Support", "Tag": "Accessibility", "Summary": "Broader custody and staking options improve institutional accessibility scores.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
+      {"Time": "4 days ago", "Headline": "Perpetual Funding Rates Normalize After Crowded Longs", "Tag": "Economics", "Summary": "Funding compression reduces leverage stress — relevant to Derivatives panels.", "Engagement": 0, "Type": "", "Repos": "", "Tracked": False},
   ]
-  # Append catalog announcements (bitcointalk + recent catalog rows)
+  # Announcement intelligence from catalog
   try:
       if load_catalog:
           cat_news = load_catalog(db_path="crypto_data.db")
           if not cat_news.empty:
-              cat_news = cat_news.sort_values("announced_at", ascending=False).head(12)
+              # Rank catalog rows by engagement first, then recency
+              cat_news = cat_news.sort_values(
+                  ["engagement", "announced_at"], ascending=[False, False]
+              ).head(20)
               for _, row in cat_news.iterrows():
-                  tag = "BitcoinTalk" if str(row.get("source", "")).startswith("bitcointalk") else "Catalog"
+                  src = str(row.get("source", "") or "")
+                  tag = "BitcoinTalk" if src.startswith("bitcointalk") else "Catalog"
+                  ttype = str(row.get("topic_type") or "").lower()
+                  if ttype == "ico":
+                      tag = "ICO"
+                  elif ttype == "ann" and tag == "BitcoinTalk":
+                      tag = "ANN"
                   news_items.append({
                       "Time": str(row.get("announced_at") or "—"),
                       "Headline": str(row.get("project_name") or "Untitled"),
                       "Tag": tag,
                       "Summary": str(row.get("summary") or row.get("category") or "")[:220],
                       "URL": str(row.get("announcement_url") or ""),
+                      "Engagement": int(row.get("engagement") or 0),
+                      "Type": ttype,
+                      "Repos": str(row.get("github_repos") or ""),
+                      "Tracked": bool(row.get("tracked")),
+                      "Symbol": str(row.get("symbol") or ""),
                   })
   except Exception:
       pass
 
+  # Velocity chart
+  try:
+      if catalog_announcement_velocity:
+          vel = catalog_announcement_velocity(db_path="crypto_data.db")
+          if vel is not None and not vel.empty:
+              st.markdown("#### Announcement velocity")
+              fig_v = go.Figure(
+                  data=[go.Bar(x=vel["date"], y=vel["count"], marker_color="#22d3ee")]
+              )
+              fig_v.update_layout(
+                  template="plotly_dark",
+                  height=220,
+                  margin=dict(l=20, r=20, t=10, b=20),
+                  yaxis_title="Announcements",
+                  xaxis_title="",
+              )
+              st.plotly_chart(fig_v, use_container_width=True)
+  except Exception:
+      pass
+
+  sort_mode = st.radio(
+      "Sort feed",
+      ["Engagement (hot first)", "Newest first"],
+      horizontal=True,
+      key="news_sort_mode",
+  )
+  if sort_mode.startswith("Engagement"):
+      news_items = sorted(news_items, key=lambda x: (-int(x.get("Engagement") or 0), str(x.get("Time") or "")), reverse=False)
+      # engagement already -int so hot first; keep stable
+      news_items = sorted(news_items, key=lambda x: int(x.get("Engagement") or 0), reverse=True)
+
   tag_options = sorted({n["Tag"] for n in news_items})
-  default_tags = [t for t in tag_options if t in ("BitcoinTalk", "Catalog", "Source Code", "Network", "Economics", "Regulatory", "On-Chain", "Accessibility")]
+  default_tags = [t for t in tag_options if t in ("ANN", "ICO", "BitcoinTalk", "Catalog", "Source Code", "Network", "Economics", "Regulatory", "On-Chain", "Accessibility")]
   selected_tags = st.multiselect(
       "Filter by tag",
       tag_options,
@@ -1906,16 +1959,29 @@ elif current_view == "News":
           continue
       url = n.get("URL") or ""
       link_html = (
-          f'<a href="{url}" target="_blank" style="color:#6ee7b7; font-size:0.75rem;">Open source</a>'
+          f'<a href="{url}" target="_blank" style="color:#67e8f9; font-size:0.75rem;">Open source</a>'
           if url else ""
       )
+      eng = int(n.get("Engagement") or 0)
+      eng_html = f'<span style="color:#fbbf24; font-size:0.72rem;"> · eng {eng}</span>' if eng else ""
+      tracked_html = (
+          f'<span style="background:rgba(16,185,129,0.15);color:#6ee7b7;border:1px solid rgba(16,185,129,0.4);'
+          f'font-size:0.65rem;padding:1px 6px;border-radius:999px;margin-left:6px;">TRACKED {n.get("Symbol","")}</span>'
+          if n.get("Tracked") else ""
+      )
+      repos = n.get("Repos") or ""
+      repos_html = (
+          f'<p style="color:#64748b;font-size:0.72rem;margin:2px 0 0 0;">Repos: {repos[:120]}</p>'
+          if repos else ""
+      )
       st.markdown(f"""
-          <div style="background-color: #1f2937; border: 1px solid #374151; padding: 12px 15px; border-radius: 8px; margin-bottom: 10px;">
-              <span style="color: #10b981; font-size: 0.75rem; font-weight: 600;">{n['Tag']}</span>
+          <div style="background-color: #111827; border: 1px solid #1e293b; padding: 12px 15px; border-radius: 10px; margin-bottom: 10px;">
+              <span style="color: #22d3ee; font-size: 0.75rem; font-weight: 600;">{n['Tag']}</span>
               <span style="color: #6b7280; font-size: 0.75rem;"> · {n['Time']}</span>
-              {link_html}
+              {eng_html}{tracked_html} {link_html}
               <p style="color: #f3f4f6; font-size: 0.9rem; margin: 4px 0 2px 0;"><b>{n['Headline']}</b></p>
               <p style="color: #9ca3af; font-size: 0.8rem; margin: 0;">{n['Summary']}</p>
+              {repos_html}
           </div>
       """, unsafe_allow_html=True)
       shown += 1
@@ -2396,8 +2462,48 @@ elif current_view == "Project Detail Page":
                 lambda r: f"{r['owner']}/{r['name']}" if r.get("owner") else r.get("repo_id"),
                 axis=1,
             )
+            # Repo risk badges (indexation GithubRepository flags)
+            risk_flags = []
+            if bool(show["is_archived"].astype(bool).any()):
+                risk_flags.append(("ARCHIVED", "#f87171", "At least one linked repo is archived"))
+            if bool(show["is_fork"].astype(bool).any()):
+                risk_flags.append(("FORK", "#fbbf24", "Includes fork repos — originality risk"))
+            low_c = show[show["contributor_count"].fillna(0) < 3]
+            if len(low_c):
+                risk_flags.append(("LOW CONTRIBUTORS", "#fb923c", f"{len(low_c)} repo(s) with <3 contributors"))
+            thin_r = show[show["releases"].fillna(0) < 1]
+            if len(thin_r):
+                risk_flags.append(("NO RELEASES", "#94a3b8", f"{len(thin_r)} repo(s) with zero releases"))
+            if risk_flags:
+                st.markdown("##### Repo risk signals")
+                badge_html = " ".join(
+                    f'<span title="{tip}" style="display:inline-block;margin:2px 4px 2px 0;padding:3px 8px;'
+                    f'border-radius:999px;font-size:0.7rem;font-weight:600;color:#0b0f19;'
+                    f'background:{color};">{label}</span>'
+                    for label, color, tip in risk_flags
+                )
+                st.markdown(badge_html, unsafe_allow_html=True)
+            else:
+                st.success("No major repo risk flags (not archived, has contributors/releases).")
+
+            show["Risk"] = show.apply(
+                lambda r: ", ".join(
+                    [
+                        x
+                        for x, cond in [
+                            ("archived", bool(r.get("is_archived"))),
+                            ("fork", bool(r.get("is_fork"))),
+                            ("low-contrib", int(r.get("contributor_count") or 0) < 3),
+                            ("no-release", int(r.get("releases") or 0) < 1),
+                        ]
+                        if cond
+                    ]
+                )
+                or "ok",
+                axis=1,
+            )
             st.dataframe(
-                show[["Repo", "Stars", "Commits", "Contributors", "Forks", "Releases", "url", "metric_date"]],
+                show[["Repo", "Stars", "Commits", "Contributors", "Forks", "Releases", "Risk", "url", "metric_date"]],
                 use_container_width=True,
                 hide_index=True,
             )
@@ -2805,30 +2911,63 @@ elif current_view == "All Projects":
           options=sorted(catalog_df["source"].dropna().unique().tolist()),
           default=sorted(catalog_df["source"].dropna().unique().tolist()),
       )
+      type_opts = sorted(
+          {str(t).upper() for t in catalog_df.get("topic_type", pd.Series(dtype=str)).dropna().unique().tolist() if t}
+          or ["ANN", "ICO"]
+      )
+      type_filter = st.multiselect("Topic type", options=type_opts, default=type_opts, key="cat_type_filter")
+      sort_cat = st.selectbox(
+          "Sort by",
+          ["Engagement", "Newest", "Name"],
+          key="cat_sort_mode",
+      )
       view = catalog_df[
           catalog_df["status"].isin(status_filter) & catalog_df["source"].isin(source_filter)
       ].copy()
+      if "topic_type" in view.columns and type_filter:
+          view = view[
+              view["topic_type"].fillna("").astype(str).str.lower().isin(
+                  {t.lower() for t in type_filter}
+              )
+              | ~view["source"].astype(str).str.startswith("bitcointalk")
+          ]
+      if sort_cat == "Engagement" and "engagement" in view.columns:
+          view = view.sort_values("engagement", ascending=False)
+      elif sort_cat == "Newest":
+          view = view.sort_values("announced_at", ascending=False)
+      else:
+          view = view.sort_values("project_name")
+
       rows = []
       for _, row in view.iterrows():
-          sym = row.get("symbol") or ""
+          sym = str(row.get("symbol") or "")
           health_txt = "—"
-          if sym in ("BTC", "ETH", "SOL", "ADA"):
+          tracked = str(sym).upper() in ("BTC", "ETH", "SOL", "ADA")
+          if tracked:
               try:
-                  health_txt = f"{compute_blockactivities_health_score(sym)['health_score']:.1f}/100"
+                  health_txt = f"{reweight_composite(compute_blockactivities_health_score(sym)['pillar_scores']):.1f}/100"
               except Exception:
                   pass
           rows.append({
               "Project": row["project_name"],
               "Symbol": sym,
-              "Category": row["category"],
-              "Health": health_txt,
+              "Tracked": "Yes" if tracked else "—",
+              "Type": str(row.get("topic_type") or row.get("category") or ""),
+              "Engagement": int(row.get("engagement") or 0),
+              "Replies": int(row.get("replies") or 0),
+              "Views": int(row.get("views") or 0),
+              "Repos": str(row.get("github_repos") or "")[:80],
+              "Radar": health_txt,
               "Status": row["status"],
               "Source": row["source"],
               "Announced": row["announced_at"],
-              "Summary": row["summary"],
+              "Summary": str(row.get("summary") or "")[:120],
           })
       st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
-      st.caption(f"Showing {len(rows)} of {len(catalog_df)} catalog projects.")
+      st.caption(
+          f"Showing {len(rows)} of {len(catalog_df)} catalog projects · "
+          "Engagement = views + 5×replies (indexation attention proxy)."
+      )
       st.info("When the BitcoinTalk scraper is connected, new Altcoin Announcements will appear here automatically.")
 
       # Deep-link tracked symbols → Project Detail

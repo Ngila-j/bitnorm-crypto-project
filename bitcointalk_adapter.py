@@ -126,12 +126,19 @@ def upsert_catalog_row(row: Dict[str, Any], db_path: str = DB_PATH_DEFAULT) -> N
         (url, name),
     )
     existing = cur.fetchone()
+    gh_join = ",".join(row.get("github_repos") or [])
+    replies = int(row.get("replies") or 0)
+    views = int(row.get("views") or 0)
+    topic_type = row.get("topic_type") or (
+        "ico" if (row.get("category") or "").lower() == "ico" else "ann"
+    )
     if existing:
         cur.execute(
             """
             UPDATE catalog_projects
             SET project_name = ?, symbol = ?, category = ?, source = ?,
-                announcement_url = ?, summary = ?, status = ?, announced_at = ?
+                announcement_url = ?, summary = ?, status = ?, announced_at = ?,
+                replies = ?, views = ?, github_repos = ?, topic_type = ?
             WHERE id = ?
             """,
             (
@@ -143,6 +150,10 @@ def upsert_catalog_row(row: Dict[str, Any], db_path: str = DB_PATH_DEFAULT) -> N
                 row.get("summary"),
                 row.get("status", "Catalog Only"),
                 row.get("announced_at"),
+                replies,
+                views,
+                gh_join,
+                topic_type,
                 existing[0],
             ),
         )
@@ -150,8 +161,9 @@ def upsert_catalog_row(row: Dict[str, Any], db_path: str = DB_PATH_DEFAULT) -> N
         cur.execute(
             """
             INSERT INTO catalog_projects
-            (project_name, symbol, category, source, announcement_url, summary, status, announced_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            (project_name, symbol, category, source, announcement_url, summary, status, announced_at,
+             replies, views, github_repos, topic_type)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 row["project_name"],
@@ -162,6 +174,10 @@ def upsert_catalog_row(row: Dict[str, Any], db_path: str = DB_PATH_DEFAULT) -> N
                 row.get("summary"),
                 row.get("status", "Catalog Only"),
                 row.get("announced_at"),
+                replies,
+                views,
+                gh_join,
+                topic_type,
             ),
         )
     conn.commit()
