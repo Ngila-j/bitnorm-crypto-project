@@ -61,7 +61,7 @@ st.set_page_config(
     page_title="BitNorm / BNAnalytics Terminal",
     page_icon="⚡",
     layout="wide",
-    initial_sidebar_state="expanded",
+    initial_sidebar_state="expanded",  # workspace controls always visible
 )
 
 # Custom High-End Styling (BitNorm Studio–aligned dark + cyan accents)
@@ -864,43 +864,90 @@ available_pages = nav_categories[st.session_state.nav_category]
 if st.session_state.nav_section not in available_pages:
   st.session_state.nav_section = available_pages[0]
 
-st.sidebar.markdown(
-    f"""
-    <div style="font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em; margin: 12px 0 6px 0;">
-      Navigation
-    </div>
-    <div style="font-size:0.78rem; color:#9ca3af; margin-bottom:8px;">
-      Now: <span style="color:#10b981; font-weight:600;">{st.session_state.nav_section}</span>
+# --- TOP NAV: categories always visible; page menu opens on category click, closes after pick ---
+if "nav_menu_open" not in st.session_state:
+  st.session_state.nav_menu_open = None  # category name or None
+
+st.markdown(
+    """
+    <div style="display:flex;align-items:center;gap:12px;margin:0 0 6px 0;">
+      <span style="font-weight:700;font-size:1.05rem;color:#f8fafc;letter-spacing:-0.02em;">BNAnalytics</span>
+      <span class="studio-chip">BitNorm Terminal</span>
     </div>
     """,
     unsafe_allow_html=True,
 )
 
-for category_name, pages in nav_categories.items():
-  is_active_category = st.session_state.nav_category == category_name
-  with st.sidebar.expander(
-      category_name,
-      expanded=is_active_category,
-  ):
-    for page_name in pages:
-      is_current = page_name == st.session_state.nav_section
-      label = f"● {page_name}" if is_current else page_name
-      if st.sidebar.button(
-          label,
+_cat_names = list(nav_categories.keys())
+_cat_cols = st.columns(len(_cat_names))
+for i, category_name in enumerate(_cat_names):
+  # Highlight category that owns the current page
+  is_section_cat = st.session_state.nav_category == category_name
+  menu_open = st.session_state.nav_menu_open == category_name
+  with _cat_cols[i]:
+    if st.button(
+        category_name,
+        key=f"topnav_cat_{category_name}",
+        use_container_width=True,
+        type="primary" if (is_section_cat or menu_open) else "secondary",
+    ):
+      # Toggle dropdown: same category again closes; other category opens its menu
+      if st.session_state.nav_menu_open == category_name:
+        st.session_state.nav_menu_open = None
+      else:
+        st.session_state.nav_menu_open = category_name
+      st.rerun()
+
+# Dropdown page list — only while a category menu is open
+if st.session_state.nav_menu_open in nav_categories:
+  _open_cat = st.session_state.nav_menu_open
+  _sub_pages = nav_categories[_open_cat]
+  st.markdown(
+      f"<div style='background:#111827;border:1px solid #1e293b;border-radius:12px;"
+      f"padding:10px 12px;margin:4px 0 8px 0;'>"
+      f"<div style='color:#64748b;font-size:0.7rem;text-transform:uppercase;"
+      f"letter-spacing:0.06em;margin-bottom:8px;'>{_open_cat} pages</div></div>",
+      unsafe_allow_html=True,
+  )
+  _sub_cols = st.columns(max(len(_sub_pages), 1))
+  for i, page_name in enumerate(_sub_pages):
+    is_current = (
+        page_name == st.session_state.nav_section
+        and st.session_state.nav_category == _open_cat
+    )
+    with _sub_cols[i]:
+      if st.button(
+          page_name,
+          key=f"subnav_{_open_cat}_{page_name}",
           use_container_width=True,
-          key=f"nav_{category_name}_{page_name}",
           type="primary" if is_current else "secondary",
       ):
-        if page_name != st.session_state.nav_section or category_name != st.session_state.nav_category:
+        if (
+            page_name != st.session_state.nav_section
+            or _open_cat != st.session_state.nav_category
+        ):
           push_nav_history()
-        st.session_state.nav_category = category_name
+        st.session_state.nav_category = _open_cat
         st.session_state.nav_section = page_name
+        st.session_state.nav_menu_open = None  # collapse menu after selection
         st.rerun()
+  # Optional close control
+  if st.button("Close menu", key="topnav_close_menu"):
+    st.session_state.nav_menu_open = None
+    st.rerun()
 
-# --- Controls: Asset + Alerts + Exports (collapsed by default for cleaner scroll) ---
+st.markdown(
+    f"<div style='color:#64748b;font-size:0.75rem;margin:2px 0 12px 0;'>"
+    f"Now: <b style='color:#94a3b8;'>{st.session_state.nav_category}</b> · "
+    f"<b style='color:#e2e8f0;'>{st.session_state.nav_section}</b>"
+    f" · Click a category to open its pages</div>",
+    unsafe_allow_html=True,
+)
+
+# --- Sidebar: workspace controls only (collapsed by default for full canvas) ---
 st.sidebar.markdown(
     """
-    <div style="font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em; margin: 14px 0 6px 0;">
+    <div style="font-size:0.72rem; color:#6b7280; text-transform:uppercase; letter-spacing:0.06em; margin: 8px 0 6px 0;">
       Workspace controls
     </div>
     """,
@@ -913,14 +960,18 @@ asset_symbol = st.sidebar.selectbox(
     key="asset_symbol",
 )
 
-with st.sidebar.expander("🔔 Alerts", expanded=False):
-  alert_health_min = st.slider("Min health warning", 0, 100, 45, key="sidebar_alert_slider")
-  webhook_url_input = st.text_input(
-      "Webhook URL",
-      placeholder="https://hooks.slack.com/...",
-      key="sidebar_webhook_url",
-  )
-  auto_webhook = st.checkbox("Auto-dispatch on breach", value=False, key="sidebar_auto_webhook")
+st.sidebar.markdown(
+    "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;"
+    "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 4px 2px;'>Alerts</div>",
+    unsafe_allow_html=True,
+)
+alert_health_min = st.sidebar.slider("Min health warning", 0, 100, 45, key="sidebar_alert_slider")
+webhook_url_input = st.sidebar.text_input(
+    "Webhook URL",
+    placeholder="https://hooks.slack.com/...",
+    key="sidebar_webhook_url",
+)
+auto_webhook = st.sidebar.checkbox("Auto-dispatch on breach", value=False, key="sidebar_auto_webhook")
 
 current_check_score = compute_blockactivities_health_score(
     asset_symbol, db_path="crypto_data.db"
@@ -1003,38 +1054,42 @@ if st.sidebar.button("Broadcast webhook now", use_container_width=True, key="sid
     except Exception as e:
       st.sidebar.error(f"Connection failed: {e}")
 
-with st.sidebar.expander("⬇ Exports", expanded=False):
-  export_frame = page_data["economics"][
-      page_data["economics"]["asset_symbol"] == asset_symbol
-  ]
-  if not export_frame.empty:
-    csv_data = export_frame.to_csv(index=False).encode("utf-8")
-    st.download_button(
-        label=f"{asset_symbol} CSV",
-        data=csv_data,
-        file_name=f"{asset_symbol}_bnanalytics.csv",
-        mime="text/csv",
-        use_container_width=True,
-    )
-  snapshot_pdf = fetch_latest_crypto_metrics(
-      asset_symbol, db_path="crypto_data.db"
-  )
-  health_pdf = compute_blockactivities_health_score(
-      asset_symbol, db_path="crypto_data.db"
-  )
-  pdf_buffer = generate_pdf_report(
-      asset_symbol,
-      health_pdf,
-      snapshot_pdf["economics"] or {},
-      snapshot_pdf["network"] or {},
-  )
-  st.download_button(
-      label=f"{asset_symbol} Executive PDF",
-      data=pdf_buffer,
-      file_name=f"{asset_symbol}_Report.pdf",
-      mime="application/pdf",
+st.sidebar.markdown(
+    "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;"
+    "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 4px 2px;'>Exports</div>",
+    unsafe_allow_html=True,
+)
+export_frame = page_data["economics"][
+    page_data["economics"]["asset_symbol"] == asset_symbol
+]
+if not export_frame.empty:
+  csv_data = export_frame.to_csv(index=False).encode("utf-8")
+  st.sidebar.download_button(
+      label=f"{asset_symbol} CSV",
+      data=csv_data,
+      file_name=f"{asset_symbol}_bnanalytics.csv",
+      mime="text/csv",
       use_container_width=True,
   )
+snapshot_pdf = fetch_latest_crypto_metrics(
+    asset_symbol, db_path="crypto_data.db"
+)
+health_pdf = compute_blockactivities_health_score(
+    asset_symbol, db_path="crypto_data.db"
+)
+pdf_buffer = generate_pdf_report(
+    asset_symbol,
+    health_pdf,
+    snapshot_pdf["economics"] or {},
+    snapshot_pdf["network"] or {},
+)
+st.sidebar.download_button(
+    label=f"{asset_symbol} Executive PDF",
+    data=pdf_buffer,
+    file_name=f"{asset_symbol}_Report.pdf",
+    mime="application/pdf",
+    use_container_width=True,
+)
 
 # --- VIEW ROUTING & RENDERING ---
 current_view = st.session_state.nav_section
@@ -1143,6 +1198,41 @@ if current_view == "Home":
               f"</div>",
               unsafe_allow_html=True,
           )
+
+  # Hot announcements (indexation engagement)
+  try:
+      if load_catalog:
+          _hot = load_catalog(db_path="crypto_data.db")
+          if _hot is not None and not _hot.empty and "engagement" in _hot.columns:
+              _hot = _hot.sort_values("engagement", ascending=False).head(3)
+              st.markdown("#### Hot announcements")
+              st.caption("Top catalog topics by engagement (views + 5×replies) — BitcoinTalk / indexation.")
+              hcols = st.columns(3)
+              for i, (_, hrow) in enumerate(_hot.iterrows()):
+                  with hcols[i]:
+                      eng = int(hrow.get("engagement") or 0)
+                      ttype = str(hrow.get("topic_type") or hrow.get("category") or "")[:12]
+                      title = str(hrow.get("project_name") or "Untitled")[:72]
+                      repos = str(hrow.get("github_repos") or "")[:48]
+                      tracked = bool(hrow.get("tracked"))
+                      badge = "TRACKED" if tracked else ttype.upper() or "CATALOG"
+                      st.markdown(
+                          f"<div style='background:#111827;border:1px solid #1e293b;border-radius:10px;padding:12px 14px;min-height:110px;'>"
+                          f"<div style='display:flex;justify-content:space-between;gap:8px;'>"
+                          f"<span style='color:#22d3ee;font-size:0.68rem;font-weight:600;'>{badge}</span>"
+                          f"<span style='color:#fbbf24;font-size:0.68rem;'>eng {eng}</span></div>"
+                          f"<div style='color:#f8fafc;font-size:0.84rem;font-weight:600;margin:6px 0 4px 0;'>{title}</div>"
+                          f"<div style='color:#64748b;font-size:0.72rem;'>{repos or str(hrow.get('announced_at') or '')}</div>"
+                          f"</div>",
+                          unsafe_allow_html=True,
+                      )
+              if st.button("View full News feed →", key="home_to_news"):
+                  push_nav_history()
+                  st.session_state.nav_category = "Insights"
+                  st.session_state.nav_section = "News"
+                  st.rerun()
+  except Exception:
+      pass
 
   score_val = reweight_composite(home_health[asset_symbol].get("pillar_scores", {}))
   if score_val < alert_health_min:

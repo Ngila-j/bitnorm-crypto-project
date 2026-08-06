@@ -1,43 +1,77 @@
-# BN Analytics — 3-minute demo script
+# BN Analytics — demo & status guide
 
-Use this path when walking your boss through the live Streamlit app.
+Use this when walking someone through the live Streamlit app or reviewing the repo.
 
 ## 0. Optional warm-up (15s)
-- **Settings → Import both** (BitcoinTalk + GitHub samples) if catalog looks empty
-- Confirm sidebar **Target asset** = BTC
 
-## 1. Home (30s)
-- Point out the **BitNorm ecosystem** chips: BNCommunity · **BNAnalytics** · BNExchange
-- Show **Live Asset Health** for BTC / ETH / SOL / ADA
-- Click **Explore Terminal**
+- **Settings → Import** BitcoinTalk + GitHub samples if catalog looks empty
+- Sidebar **Target asset** = BTC (or ETH)
 
-## 2. Overview Dashboard (45s)
-- Macro metrics + **Order Flow** (exchange adapter — mock/live in Settings)
-- Mention alerts: sidebar health threshold + webhook
+## 1. Home (45s)
 
-## 3. Project Detail → 5 Pillars (45s)
-- Open **Project Detail Page**
-- **5 Pillars** tab: Source Code, Network, Economics, Sentiment, Accessibility
-- Scroll to **Linked GitHub repositories** (stars, commits, contributors from adapter)
+- Ecosystem chips: BNCommunity · **BNAnalytics** · BNExchange
+- **Protocol health leaderboard** (custom pillar weights)
+- **Hot announcements** — top engagement topics from catalog
+- CTAs: Live Analytics · Explorer · Compare · Detail
 
-## 4. Project catalog (30s)
-- **Projects → All Projects**: filter source `bitcointalk` for ANN/ICO samples
-- **Categories** / **Search**: try `NovaMesh` or `DeFi`
+## 2. Overview Dashboard (60s)
 
-## 5. News (20s)
-- **Insights → News**
-- Filter tag **BitcoinTalk** / **Catalog** — announcements from the catalog
+Studio-style tabs:
 
-## 6. Alerts & Settings (20s)
-- Sidebar health status chip
-- **Settings**: Exchange mode, **Import samples**, Regenerate data, Alert audit log
+| Tab | Show |
+|-----|------|
+| **Asset Overview** | Macro + vol context |
+| **Market** | Order book / taker flow |
+| **5-Pillar Health Engine** | Radar, pillar chips, weights |
+| **On-Chain Activity** | Whales / network |
 
-## Optional
-- **Docs / API**: playground includes `/v1/catalog` (local `uvicorn` on `:8000`)
-- **Learn → Tutorials**
+## 3. Project Detail (45s)
+
+- **5 Pillars** tab: radar + composite (session weights)
+- **Source Code history** + **Linked GitHub repositories**
+- **Repo risk badges**: archived / fork / low contributors / no releases
+
+## 4. Catalog & News (45s)
+
+- **Projects → All Projects**: engagement, type, linked repos, **Tracked** symbols
+- **Insights → News**: sort by engagement, ANN/ICO tags, velocity chart
+
+## 5. Compare & Explorer (30s)
+
+- **Compare Assets**: side-by-side pillars
+- **Project Explorer**: Radar Score + DEV/NET/ECON/SENT/ACCESS
+
+## 6. Settings (30s)
+
+- Custom pillar weights (institutional vs equal 20%)
+- **BitNorm GraphQL API** → `https://api.bitnorm.com/` (Test connection)
+- Exchange mode, sample imports, regenerate data
+
+## Architecture (one sentence)
+
+Local SQLite + adapters (BitcoinTalk topics, GitHub repos) power the 5-pillar terminal; production GraphQL at `api.bitnorm.com` is stubbed until auth is provided.
 
 ## Talking points
-- This is the **BNAnalytics** module of BitNorm (not the full community site)
-- Catalog + Source Code adapters match indexation schemas (`BitcointalkTopic`, `GithubRepository`)
-- Exchange **live** mode waits on BNExchange API keys
-- Live BitcoinTalk/Mongo feed can replace sample JSON without UI rewrites
+
+| Ready now | Waiting on boss |
+|-----------|-----------------|
+| 5-pillar scores, radar, weights | GraphQL token + sample queries |
+| Catalog engagement intelligence | Live multi-asset universe |
+| GitHub risk signals | Mongo/indexation bulk export |
+| Local FastAPI (`api.py`) | Exchange live keys (BNExchange) |
+
+## Push checklist
+
+```powershell
+git add app.py catalog.py bitcointalk_adapter.py github_repo_adapter.py bitnorm_api.py DEMO.md .env.example
+git status
+git commit -m "Announcement intelligence, repo risk, GraphQL stub, Studio polish"
+git push origin main
+```
+
+## Optional API probe
+
+```powershell
+# After BITNORM_API_TOKEN is set
+curl.exe -X POST "https://api.bitnorm.com/" -H "Content-Type: application/json" -H "Authorization: Bearer YOUR_TOKEN" -d "{\"query\":\"{ __typename }\"}"
+```
