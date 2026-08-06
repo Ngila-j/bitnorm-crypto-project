@@ -477,16 +477,55 @@ def format_currency(value):
     return f"${value/1e6:,.2f}M"
   return f"${value:,.2f}"
 
+# Studio palette (cyan / slate — matches BitNorm Studio screenshots)
+STUDIO_CYAN = "#22d3ee"
+STUDIO_CYAN_DIM = "rgba(34, 211, 238, 0.28)"
+STUDIO_CYAN_LINE = "#06b6d4"
+STUDIO_SLATE = "#94a3b8"
+STUDIO_GRID = "rgba(30, 41, 59, 0.9)"
+STUDIO_FONT = "#e2e8f0"
+
+
+def _studio_chart_layout(fig, title=None, height=None):
+  """Shared Plotly layout: transparent, cyan-friendly, slate axes."""
+  layout = dict(
+      plot_bgcolor="rgba(0,0,0,0)",
+      paper_bgcolor="rgba(0,0,0,0)",
+      font=dict(color=STUDIO_FONT, family="Inter, system-ui, sans-serif", size=12),
+      title=dict(font=dict(size=14, color="#f8fafc")) if title is None else dict(text=title, font=dict(size=14, color="#f8fafc")),
+      margin=dict(l=40, r=24, t=48, b=36),
+      xaxis=dict(
+          gridcolor=STUDIO_GRID,
+          zerolinecolor=STUDIO_GRID,
+          tickfont=dict(color=STUDIO_SLATE, size=11),
+          title_font=dict(color=STUDIO_SLATE, size=11),
+      ),
+      yaxis=dict(
+          gridcolor=STUDIO_GRID,
+          zerolinecolor=STUDIO_GRID,
+          tickfont=dict(color=STUDIO_SLATE, size=11),
+          title_font=dict(color=STUDIO_SLATE, size=11),
+      ),
+      legend=dict(font=dict(color=STUDIO_SLATE, size=11)),
+  )
+  if height:
+    layout["height"] = height
+  fig.update_layout(**layout)
+  return fig
+
+
 def render_metric_cards(metrics):
   cols = st.columns(len(metrics))
   for col, (title, value, delta) in zip(cols, metrics):
     with col:
       st.metric(label=title, value=value, delta=delta)
 
-def render_history_chart(frame, metric_name, title, y_label, color="#10b981"):
+def render_history_chart(frame, metric_name, title, y_label, color=None):
   if frame is None or frame.empty or metric_name not in frame.columns:
     st.info(f"No historical data available for **{title}** yet. Try regenerating data from Settings.")
     return
+  if color is None:
+    color = STUDIO_CYAN_LINE
   chart_data = (
       frame[["metric_date", metric_name]].copy().sort_values("metric_date")
   )
@@ -498,13 +537,14 @@ def render_history_chart(frame, metric_name, title, y_label, color="#10b981"):
       title=title,
       labels={"metric_date": "Timeline", metric_name: y_label},
   )
-  fig.update_traces(line_color=color, line_width=3)
-  fig.update_layout(
-      plot_bgcolor="rgba(0,0,0,0)",
-      paper_bgcolor="rgba(0,0,0,0)",
-      font_color="#f3f4f6",
-      title_font_size=14,
+  fig.update_traces(
+      line_color=color,
+      line_width=2.5,
+      marker=dict(size=6, color=color, line=dict(width=0)),
+      fill="tozeroy",
+      fillcolor=STUDIO_CYAN_DIM if color in (STUDIO_CYAN, STUDIO_CYAN_LINE, "#22d3ee", "#06b6d4") else "rgba(34, 211, 238, 0.12)",
   )
+  _studio_chart_layout(fig, title=title, height=280)
   st.plotly_chart(fig, use_container_width=True)
 
 @st.fragment(run_every=5)
@@ -702,11 +742,10 @@ def reweight_composite(pillar_scores: dict, weights: dict | None = None) -> floa
 
 
 def render_pillar_radar(pillar_scores: dict, title: str = "Health radar"):
-  """Studio-style 5-pillar spider chart."""
+  """Studio-style 5-pillar spider chart (cyan polygon on dark slate)."""
   labels = ["Source Code", "Network", "Economics", "Sentiment", "Accessibility"]
   keys = ["sourcecode", "network", "economics", "sentiment", "accessibility"]
   values = [float(pillar_scores.get(k, 0) or 0) for k in keys]
-  # Close the polygon
   labels_c = labels + [labels[0]]
   values_c = values + [values[0]]
   fig = go.Figure(
@@ -716,23 +755,38 @@ def render_pillar_radar(pillar_scores: dict, title: str = "Health radar"):
               theta=labels_c,
               fill="toself",
               name="Pillars",
-              line=dict(color="#10b981", width=2),
-              fillcolor="rgba(16, 185, 129, 0.25)",
+              line=dict(color=STUDIO_CYAN, width=2.5),
+              fillcolor=STUDIO_CYAN_DIM,
+              marker=dict(size=5, color=STUDIO_CYAN),
           )
       ]
   )
   fig.update_layout(
       polar=dict(
-          radialaxis=dict(visible=True, range=[0, 100], showticklabels=True, ticks=""),
-          bgcolor="rgba(0,0,0,0)",
+          radialaxis=dict(
+              visible=True,
+              range=[0, 100],
+              showticklabels=True,
+              ticks="",
+              gridcolor=STUDIO_GRID,
+              linecolor=STUDIO_GRID,
+              tickfont=dict(color=STUDIO_SLATE, size=10),
+          ),
+          angularaxis=dict(
+              gridcolor=STUDIO_GRID,
+              linecolor=STUDIO_GRID,
+              tickfont=dict(color=STUDIO_FONT, size=11),
+          ),
+          bgcolor="rgba(15, 23, 42, 0.35)",
       ),
       showlegend=False,
       template="plotly_dark",
-      title=dict(text=title, font=dict(size=14)),
-      height=380,
-      margin=dict(l=40, r=40, t=50, b=30),
+      title=dict(text=title, font=dict(size=14, color="#f8fafc", family="Inter, system-ui, sans-serif")),
+      height=400,
+      margin=dict(l=48, r=48, t=56, b=36),
       paper_bgcolor="rgba(0,0,0,0)",
       plot_bgcolor="rgba(0,0,0,0)",
+      font=dict(color=STUDIO_FONT, family="Inter, system-ui, sans-serif"),
   )
   st.plotly_chart(fig, use_container_width=True)
 
@@ -1994,7 +2048,7 @@ elif current_view == "Market Analysis":
                   x=forecast["ds"],
                   y=forecast["yhat"],
                   name="Forecast",
-                  line=dict(color="#10b981", dash="dash"),
+                  line=dict(color=STUDIO_CYAN_LINE, dash="dash"),
               ))
               fig_fc.update_layout(
                   title=f"{asset_symbol} Market Cap Forecast (14D)",
@@ -2078,7 +2132,7 @@ elif current_view == "News":
           if vel is not None and not vel.empty:
               st.markdown("#### Announcement velocity")
               fig_v = go.Figure(
-                  data=[go.Bar(x=vel["date"], y=vel["count"], marker_color="#22d3ee")]
+                  data=[go.Bar(x=vel["date"], y=vel["count"], marker_color=STUDIO_CYAN)]
               )
               fig_v.update_layout(
                   template="plotly_dark",
@@ -2242,7 +2296,7 @@ elif current_view == "Overview Dashboard":
               ask_prices = [lv[0] for lv in book_asks]
               ask_sizes = list(np.cumsum([lv[1] for lv in book_asks]))
               fig_depth.add_trace(go.Scatter(
-                  x=bid_prices, y=bid_sizes, fill="tozeroy", name="Bids", line=dict(color="#10b981")
+                  x=bid_prices, y=bid_sizes, fill="tozeroy", name="Bids", line=dict(color=STUDIO_CYAN_LINE)
               ))
               fig_depth.add_trace(go.Scatter(
                   x=ask_prices, y=ask_sizes, fill="tozeroy", name="Asks", line=dict(color="#ef4444")
@@ -2254,7 +2308,7 @@ elif current_view == "Overview Dashboard":
               bids_cum = np.cumsum(np.random.exponential(10, 50))[::-1]
               asks_cum = np.cumsum(np.random.exponential(10, 50))
               fig_depth.add_trace(go.Scatter(
-                  x=prices_dummy[:25], y=bids_cum[:25], fill="tozeroy", name="Bids", line=dict(color="#10b981")
+                  x=prices_dummy[:25], y=bids_cum[:25], fill="tozeroy", name="Bids", line=dict(color=STUDIO_CYAN_LINE)
               ))
               fig_depth.add_trace(go.Scatter(
                   x=prices_dummy[25:], y=asks_cum[25:], fill="tozeroy", name="Asks", line=dict(color="#ef4444")
@@ -2386,7 +2440,7 @@ elif current_view == "Overview Dashboard":
           "tx_tps",
           f"{asset_symbol} Throughput Velocity",
           "TPS",
-          color="#10b981",
+          color=STUDIO_CYAN_LINE,
       )
 
 elif current_view == "Project Detail Page":
@@ -2556,16 +2610,16 @@ elif current_view == "Project Detail Page":
             with sc1:
                 if "commits" in src_hist.columns:
                     render_history_chart(
-                        src_hist, "commits", f"{asset_symbol} Commits", "Commits", color="#10b981"
+                        src_hist, "commits", f"{asset_symbol} Commits", "Commits", color=STUDIO_CYAN_LINE
                     )
                 if "repo_score" in src_hist.columns:
                     render_history_chart(
-                        src_hist, "repo_score", f"{asset_symbol} Repo score", "Score", color="#34d399"
+                        src_hist, "repo_score", f"{asset_symbol} Repo score", "Score", color=STUDIO_CYAN
                     )
             with sc2:
                 if "active_devs" in src_hist.columns:
                     render_history_chart(
-                        src_hist, "active_devs", f"{asset_symbol} Active developers", "Devs", color="#059669"
+                        src_hist, "active_devs", f"{asset_symbol} Active developers", "Devs", color="#67e8f9"
                     )
 
         # GitHub repository snapshots (from github_repo_adapter / indexation schema)
@@ -2743,7 +2797,7 @@ elif current_view == "Project Detail Page":
             "active_addresses",
             f"{asset_symbol} Active Addresses",
             "Addresses",
-            color="#10b981",
+            color=STUDIO_CYAN_LINE,
         )
 
     # --- TAB: Capital Flows & Exchange (prep for acquired exchange) ---
@@ -2961,7 +3015,7 @@ elif current_view == "Compare Assets":
           right_sym: [float(rp.get(p[1], 0)) for p in pillar_keys],
       })
       fig_cmp = go.Figure()
-      fig_cmp.add_trace(go.Bar(name=left_sym, x=chart_df["Pillar"], y=chart_df[left_sym], marker_color="#10b981"))
+      fig_cmp.add_trace(go.Bar(name=left_sym, x=chart_df["Pillar"], y=chart_df[left_sym], marker_color=STUDIO_CYAN_LINE))
       fig_cmp.add_trace(go.Bar(name=right_sym, x=chart_df["Pillar"], y=chart_df[right_sym], marker_color="#3b82f6"))
       fig_cmp.update_layout(
           barmode="group",
