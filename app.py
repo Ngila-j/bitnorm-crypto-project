@@ -962,31 +962,70 @@ asset_symbol = st.sidebar.selectbox(
 
 st.sidebar.markdown(
     "<div style='font-size:0.7rem;font-weight:700;color:#94a3b8;"
-    "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 4px 2px;'>Alerts</div>",
+    "text-transform:uppercase;letter-spacing:0.07em;margin:10px 0 4px 2px;'>Alert rules</div>",
     unsafe_allow_html=True,
 )
-alert_health_min = st.sidebar.slider("Min health warning", 0, 100, 45, key="sidebar_alert_slider")
+alert_metric = st.sidebar.selectbox(
+    "Metric",
+    [
+        "Composite Health",
+        "Source Code",
+        "Network",
+        "Economics",
+        "Sentiment",
+        "Accessibility",
+    ],
+    key="sidebar_alert_metric",
+)
+alert_operator = st.sidebar.selectbox(
+    "Condition",
+    ["falls below", "exceeds"],
+    key="sidebar_alert_op",
+)
+alert_health_min = st.sidebar.slider("Threshold", 0, 100, 45, key="sidebar_alert_slider")
+alert_channel = st.sidebar.selectbox(
+    "Channel",
+    ["Webhook (Slack/Discord/Telegram)", "Discord-style", "Telegram-style"],
+    key="sidebar_alert_channel",
+)
 webhook_url_input = st.sidebar.text_input(
     "Webhook URL",
-    placeholder="https://hooks.slack.com/...",
+    placeholder="https://hooks.slack.com/... or discord.com/api/webhooks/...",
     key="sidebar_webhook_url",
 )
 auto_webhook = st.sidebar.checkbox("Auto-dispatch on breach", value=False, key="sidebar_auto_webhook")
 
-current_check_score = compute_blockactivities_health_score(
-    asset_symbol, db_path="crypto_data.db"
-)["health_score"]
+_health_payload = compute_blockactivities_health_score(asset_symbol, db_path="crypto_data.db")
+_pillar_map = {
+    "Composite Health": None,
+    "Source Code": "sourcecode",
+    "Network": "network",
+    "Economics": "economics",
+    "Sentiment": "sentiment",
+    "Accessibility": "accessibility",
+}
+_ps = _health_payload.get("pillar_scores") or {}
+if alert_metric == "Composite Health":
+  current_check_score = reweight_composite(_ps)
+else:
+  current_check_score = float(_ps.get(_pillar_map[alert_metric], 0) or 0)
 
 # Session-level breach tracking to avoid logging every Streamlit rerun
 if "alert_breach_keys" not in st.session_state:
   st.session_state.alert_breach_keys = set()
 
-breach_key = f"{asset_symbol}:{alert_health_min}:{int(current_check_score)}"
-is_breach = current_check_score < alert_health_min
+breach_key = f"{asset_symbol}:{alert_metric}:{alert_operator}:{alert_health_min}:{int(current_check_score)}"
+if alert_operator == "falls below":
+  is_breach = current_check_score < alert_health_min
+else:
+  is_breach = current_check_score > alert_health_min
 
 # Compact status chip under asset selector
+_op_sym = "<" if alert_operator == "falls below" else ">"
 if is_breach:
-  st.sidebar.warning(f"⚠ {asset_symbol} {current_check_score:.1f} < {alert_health_min}")
+  st.sidebar.warning(
+      f"⚠ {asset_symbol} {alert_metric} {current_check_score:.1f} {_op_sym} {alert_health_min}"
+  )
   if breach_key not in st.session_state.alert_breach_keys:
     try:
       conn_log = sqlite3.connect("bnanalytics_institutional.db")
@@ -1004,8 +1043,8 @@ if is_breach:
     try:
       payload = {
           "text": (
-              f"BNAnalytics Auto-Dispatch: {asset_symbol} Health Score "
-              f"dropped to {current_check_score:.1f} (Threshold: {alert_health_min})!"
+              f"BNAnalytics Auto-Dispatch [{alert_channel}]: {asset_symbol} {alert_metric} "
+              f"is {current_check_score:.1f} (rule: {alert_operator} {alert_health_min})"
           )
       }
       res = requests.post(webhook_url_input, json=payload, timeout=4)
@@ -1022,7 +1061,10 @@ if is_breach:
     except Exception as e:
       st.sidebar.error(f"Auto-webhook failed: {e}")
 else:
-  st.sidebar.caption(f"✓ {asset_symbol} health {current_check_score:.1f} ≥ {alert_health_min}")
+  st.sidebar.caption(
+      f"✓ {asset_symbol} {alert_metric} {current_check_score:.1f} "
+      f"{'≥' if alert_operator == 'falls below' else '≤'} {alert_health_min}"
+  )
 
 # Broadcast lives inside alerts expander UX via second expander actions
 if st.sidebar.button("Broadcast webhook now", use_container_width=True, key="sidebar_broadcast"):
@@ -1032,8 +1074,8 @@ if st.sidebar.button("Broadcast webhook now", use_container_width=True, key="sid
     try:
       payload = {
           "text": (
-              f"BNAnalytics Manual Dispatch: {asset_symbol} Health Score "
-              f"is {current_check_score:.1f} (Threshold: {alert_health_min})."
+              f"BNAnalytics Manual Dispatch [{alert_channel}]: {asset_symbol} {alert_metric} "
+              f"is {current_check_score:.1f} (rule: {alert_operator} {alert_health_min})."
           )
       }
       res = requests.post(webhook_url_input, json=payload, timeout=4)
@@ -1198,6 +1240,30 @@ if current_view == "Home":
               f"</div>",
               unsafe_allow_html=True,
           )
+
+  # Mini radar for the selected target asset (Studio-style hero)
+  _sel_p = home_health.get(asset_symbol, {}).get("pillar_scores", {})
+  _sel_c = reweight_composite(_sel_p)
+  rad_home, meta_home = st.columns([1.1, 1])
+  with rad_home:
+      render_pillar_radar(_sel_p, title=f"{asset_symbol} health radar")
+  with meta_home:
+      st.markdown("#### Selected asset snapshot")
+      st.metric("Radar score", f"{_sel_c:.1f}/100")
+      st.caption("Uses Settings pillar weights · change Target asset in the sidebar.")
+      m1, m2 = st.columns(2)
+      with m1:
+          st.metric("Source Code", f"{_sel_p.get('sourcecode', 0):.0f}")
+          st.metric("Economics", f"{_sel_p.get('economics', 0):.0f}")
+          st.metric("Accessibility", f"{_sel_p.get('accessibility', 0):.0f}")
+      with m2:
+          st.metric("Network", f"{_sel_p.get('network', 0):.0f}")
+          st.metric("Sentiment", f"{_sel_p.get('sentiment', 0):.0f}")
+      if st.button("Open full diagnostics →", key="home_open_detail_radar"):
+          push_nav_history()
+          st.session_state.nav_category = "Terminal"
+          st.session_state.nav_section = "Project Detail Page"
+          st.rerun()
 
   # Hot announcements (indexation engagement)
   try:
@@ -3053,10 +3119,19 @@ elif current_view == "All Projects":
               "Announced": row["announced_at"],
               "Summary": str(row.get("summary") or "")[:120],
           })
-      st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+      df_cat_out = pd.DataFrame(rows)
+      st.dataframe(df_cat_out, use_container_width=True, hide_index=True)
       st.caption(
           f"Showing {len(rows)} of {len(catalog_df)} catalog projects · "
           "Engagement = views + 5×replies (indexation attention proxy)."
+      )
+      st.download_button(
+          label="Download catalog CSV",
+          data=df_cat_out.to_csv(index=False).encode("utf-8"),
+          file_name="bnanalytics_catalog_export.csv",
+          mime="text/csv",
+          use_container_width=True,
+          key="catalog_csv_export",
       )
       st.info("When the BitcoinTalk scraper is connected, new Altcoin Announcements will appear here automatically.")
 
